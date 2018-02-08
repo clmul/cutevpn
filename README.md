@@ -1,1 +1,1 @@
-# cutevpn
+# CuteVPN
