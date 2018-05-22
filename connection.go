@@ -3,32 +3,42 @@ package cutevpn
 import (
 	"context"
 	"log"
+
+	"github.com/clmul/checksum"
+	"github.com/clmul/cutevpn/ipv4"
 )
 
 type conn struct {
-	vpn             *VPN
-	defaultHopLimit uint8
-	queue           chan Packet
+	vpn   *VPN
+	queue chan Packet
 }
 
 type Packet struct {
-	Payload  []byte
-	Route    Route
-	dst      IPv4
-	hopLimit uint8
+	Payload []byte
+	Route   Route
+	dst     IPv4
+	through IPv4
+	flags   uint8
 }
 
-const TailSize = 5
+const (
+	flagRouting  = 0x10
+	flagHopLimit = 0x0f
+	flagDefault  = 0x0f
+)
 
-func newConn(vpn *VPN, links []Link, peers []LinkAddr) *conn {
+const TailSize = 9
+
+func newConn(vpn *VPN, links []Link) *conn {
 	c := &conn{
-		vpn:             vpn,
-		defaultHopLimit: 8,
-		queue:           make(chan Packet, 16),
+		vpn:   vpn,
+		queue: make(chan Packet, 16),
 	}
 	cipherOverhead := vpn.linkCipher.Overhead()
-	for i, link := range links {
-		log.Printf("overhead of %v is %v", link.ToString(peers[i]), link.Overhead()+cipherOverhead+TailSize)
+	for _, link := range links {
+		if link.Overhead() >= 0 {
+			log.Printf("overhead of %v is %v", link.ToString(link.Peer()), link.Overhead()+cipherOverhead+TailSize)
+		}
 		link := link
 		vpn.Loop(func(ctx context.Context) error {
 			packet := make([]byte, 2048)
@@ -51,11 +61,12 @@ func newConn(vpn *VPN, links []Link, peers []LinkAddr) *conn {
 
 			packet, tail := packet[:len(packet)-TailSize], packet[len(packet)-TailSize:]
 			p := Packet{
-				Payload:  packet,
-				Route:    Route{link: link, addr: linkAddr},
-				hopLimit: tail[4],
+				Payload: packet,
+				Route:   Route{link: link, addr: linkAddr},
+				flags:   tail[0],
 			}
-			copy(p.dst[:], tail[:4])
+			copy(p.dst[:], tail[1:])
+			copy(p.through[:], tail[5:])
 			c.queue <- p
 			return nil
 		})
@@ -64,22 +75,28 @@ func newConn(vpn *VPN, links []Link, peers []LinkAddr) *conn {
 	return c
 }
 
-func (c *conn) Forward(route Route, pack Packet) {
-	if pack.hopLimit <= 1 {
+func (c *conn) Forward(self IPv4, route Route, pack Packet) {
+	if pack.flags&flagHopLimit <= 1 {
 		log.Printf("drop a packet because hop limit is 0, dst is %v", pack.dst)
 		return
 	}
-	c.send(route, pack.dst, pack.hopLimit-1, pack.Payload)
+	const ttlOffset = 8
+	ttl := pack.Payload[ttlOffset]
+	if ttl <= 1 {
+		src := GetSrcIP(pack.Payload)
+		reply := ipv4.TimeExceeded(self, src, pack.Payload)
+		c.Send(pack.Route, src, EmptyIPv4, flagDefault, reply)
+		return
+	}
+	checksum.UpdateByte(pack.Payload, ttlOffset, ttl-1)
+	c.Send(route, pack.dst, pack.through, pack.flags-1, pack.Payload)
 }
 
-func (c *conn) Send(route Route, dst IPv4, packet []byte) {
-	c.send(route, dst, c.defaultHopLimit, packet)
-}
-
-func (c *conn) send(route Route, dst IPv4, hopLimit uint8, packet []byte) {
+func (c *conn) Send(route Route, dst, through IPv4, flags uint8, packet []byte) {
 	var tail [TailSize]byte
-	copy(tail[:], dst[:])
-	tail[4] = hopLimit
+	tail[0] = flags
+	copy(tail[1:], dst[:])
+	copy(tail[5:], through[:])
 	packet = append(packet, tail[:]...)
 
 	packet = c.vpn.linkCipher.Encrypt(packet)

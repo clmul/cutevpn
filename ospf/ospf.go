@@ -11,25 +11,32 @@ import (
 )
 
 const (
-	HelloInterval      = 20 * time.Second
-	RouterDeadInterval = 42 * time.Second
-	AdjaCheckInterval  = 5 * time.Second
-	RetryInterval      = 2134 * time.Millisecond
-	UpdateThreshold    = 20 // 20%
+	HelloInterval      = 1024 * time.Millisecond
+	RouterDeadInterval = 256 * time.Second
+	AdjaCheckInterval  = 1500 * time.Millisecond
+	RetryInterval      = 1800 * time.Millisecond
+	UpdateThreshold    = 32 // 32/128
 	MaxMetric          = time.Hour
-	AverageWindow      = 10
+	AverageWindow      = 9
 )
 
 func init() {
-	cutevpn.RegisterRouting("ospf", newOSPF)
+	cutevpn.RegisterRouting("ospf", func(loop cutevpn.Looper, ip cutevpn.IPv4) cutevpn.Routing {
+		return newOSPF(loop, ip, false)
+	})
+	cutevpn.RegisterRouting("leaf", func(loop cutevpn.Looper, ip cutevpn.IPv4) cutevpn.Routing {
+		return newOSPF(loop, ip, true)
+	})
 }
 
 type OSPF struct {
-	queue chan cutevpn.Packet
+	in   chan cutevpn.Packet
+	out  chan cutevpn.Packet
+	loop cutevpn.Looper
 
 	ip     cutevpn.IPv4
-	vpn    *cutevpn.VPN
 	routes *table
+	leaf   bool
 
 	adjacents map[cutevpn.IPv4]*adjacent
 	neighbors map[cutevpn.IPv4]*linkState
@@ -43,36 +50,38 @@ type linkState struct {
 }
 
 func (ls linkState) MarshalJSON() ([]byte, error) {
-	var acked []cutevpn.IPv4
+	acked := make([]cutevpn.IPv4, 0, len(ls.acked))
 	for ip := range ls.acked {
 		acked = append(acked, ip)
 	}
 	data := map[string]interface{}{
 		"db":      ls.msg.State,
-		"version": ls.msg.Version,
+		"version": time.Unix(0, int64(ls.msg.Version)).In(time.UTC),
 		"acked":   acked,
 	}
 	return json.Marshal(data)
 }
 
-func newOSPF(vpn *cutevpn.VPN, ip cutevpn.IPv4) cutevpn.Routing {
+func newOSPF(loop cutevpn.Looper, ip cutevpn.IPv4, isLeaf bool) cutevpn.Routing {
 	ospf := &OSPF{
-		queue:     make(chan cutevpn.Packet),
+		in:        make(chan cutevpn.Packet, 16),
+		out:       make(chan cutevpn.Packet, 16),
+		loop:      loop,
 		ip:        ip,
-		vpn:       vpn,
+		leaf:      isLeaf,
 		routes:    newRouteTable(),
 		adjacents: make(map[cutevpn.IPv4]*adjacent),
 		neighbors: make(map[cutevpn.IPv4]*linkState),
 		tasks:     make(chan func()),
 	}
 	adjaCheckTick := time.NewTicker(AdjaCheckInterval)
-	ospf.vpn.Defer(adjaCheckTick.Stop)
+	loop.Defer(adjaCheckTick.Stop)
 	retryTick := time.NewTicker(RetryInterval)
-	ospf.vpn.Defer(retryTick.Stop)
-	ospf.vpn.Loop(func(ctx context.Context) error {
+	loop.Defer(retryTick.Stop)
+	loop.Loop(func(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
-		case packet := <-ospf.queue:
+		case packet := <-ospf.in:
 			ospf.handlePacket(packet)
 		case <-adjaCheckTick.C:
 			ospf.checkAdja()
@@ -91,11 +100,12 @@ func (ospf *OSPF) Dump() []byte {
 	ospf.tasks <- func() {
 		ospf.routes.Lock()
 		data, err := json.Marshal(map[string]interface{}{
-			"IP":        ospf.ip,
-			"adjacents": ospf.adjacents,
-			"neighbors": ospf.neighbors,
-			"adjaRoute": ospf.routes.adjaRoutes,
-			"routes":    ospf.routes.routes,
+			"IP":             ospf.ip,
+			"adjacents":      ospf.adjacents,
+			"neighbors":      ospf.neighbors,
+			"adjaRoutes":     ospf.routes.adja,
+			"shortestRoutes": ospf.routes.shortest,
+			"balanceRoutes":  ospf.routes.balance,
 		})
 		ospf.routes.Unlock()
 		if err != nil {
@@ -106,21 +116,28 @@ func (ospf *OSPF) Dump() []byte {
 	return <-result
 }
 
-func (ospf *OSPF) PacketQueue() chan cutevpn.Packet {
-	return ospf.queue
+func (ospf *OSPF) Inject(p cutevpn.Packet) {
+	select {
+	case ospf.in <- p:
+	default:
+	}
+}
+
+func (ospf *OSPF) SendQueue() chan cutevpn.Packet {
+	return ospf.out
 }
 
 func (ospf *OSPF) AddIfce(ifce cutevpn.Link, peer cutevpn.Route) {
 	sendHello := func() {
 		msg := message.NewHello(ospf.ip, nanotime(), 0, 0)
 		packet := msg.Marshal(make([]byte, 2048))
-		ospf.vpn.SendThrough(peer, packet)
+		ospf.out <- cutevpn.Packet{Payload: packet, Route: peer}
 	}
 	sendHello()
 
 	tick := time.NewTicker(HelloInterval)
-	ospf.vpn.Defer(tick.Stop)
-	ospf.vpn.Loop(func(ctx context.Context) error {
+	ospf.loop.Defer(tick.Stop)
+	ospf.loop.Loop(func(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 		case <-tick.C:
@@ -153,14 +170,14 @@ func (ospf *OSPF) handleHello(hello message.Hello, route cutevpn.Route) {
 		hello.Forwarded = 1
 		hello.Src = ospf.ip
 		packet := hello.Marshal(make([]byte, 2048))
-		ospf.vpn.SendThrough(route, packet)
+		ospf.out <- cutevpn.Packet{Payload: packet, Route: route}
 		return
 	case 1:
 		start = hello.Time1
 		hello.Forwarded = 2
 		hello.Src = ospf.ip
 		packet := hello.Marshal(make([]byte, 2048))
-		ospf.vpn.SendThrough(route, packet)
+		ospf.out <- cutevpn.Packet{Payload: packet, Route: route}
 	case 2:
 		start = hello.Time2
 	}
@@ -184,25 +201,23 @@ func (ospf *OSPF) updateMetric(src cutevpn.IPv4, route cutevpn.Route, startTime,
 func (ospf *OSPF) checkAdja() {
 	shouldFlood := false
 	for ip, adja := range ospf.adjacents {
-		metric := adja.GetMinMetricAndDeleteDeadRoute()
-		if metric == uint64(MaxMetric) {
+		updated := adja.UpdateMetric()
+		if updated {
+			shouldFlood = true
+		}
+		if len(adja.Routes) == 0 {
 			delete(ospf.adjacents, ip)
 			shouldFlood = true
 		}
 	}
-	ospf.updateRouteTable()
 	if shouldFlood {
 		ospf.floodLinkState()
 	}
+	ospf.updateRouteTable()
 }
 
 func (ospf *OSPF) updateRouteTable() {
-	result := findPaths(ospf.ip, ospf.neighbors)
-	adjaRoutes := make(map[cutevpn.IPv4]RouteHeap)
-	for ip, adja := range ospf.adjacents {
-		adjaRoutes[ip] = adja.GetRoutes()
-	}
-	ospf.routes.Update(adjaRoutes, result)
+	ospf.routes.Update(ospf.ip, ospf.adjacents, ospf.neighbors)
 }
 
 func (ospf *OSPF) linkState() map[cutevpn.IPv4]uint64 {
@@ -231,12 +246,14 @@ func (ospf *OSPF) sendPendingLSDB() {
 				log.Printf("send %v's LinkState to %v", owner, adjaIP)
 				msg := state.msg
 				msg.Src = ospf.ip
-
-				route, err := ospf.routes.get(adjaIP, true)
+				if owner == ospf.ip && ospf.leaf {
+					msg.State = make(map[cutevpn.IPv4]uint64)
+				}
+				route, err := ospf.GetAdja(adjaIP)
 				if err != nil {
 					continue
 				}
-				ospf.vpn.SendThrough(route, msg.Marshal(make([]byte, 2048)))
+				ospf.out <- cutevpn.Packet{Payload: msg.Marshal(make([]byte, 2048)), Route: route}
 			}
 		}
 	}
@@ -244,11 +261,11 @@ func (ospf *OSPF) sendPendingLSDB() {
 
 func (ospf *OSPF) ack(msg message.LinkStateUpdate) {
 	ackPacket := message.NewLinkStateACK(ospf.ip, msg.Owner, msg.Version)
-	route, err := ospf.routes.get(msg.Src, true)
+	route, err := ospf.GetAdja(msg.Src)
 	if err != nil {
 		return
 	}
-	ospf.vpn.SendThrough(route, ackPacket.Marshal(make([]byte, 2048)))
+	ospf.out <- cutevpn.Packet{Payload: ackPacket.Marshal(make([]byte, 2048)), Route: route}
 }
 
 func (ospf *OSPF) handleACK(ack message.LinkStateACK) {

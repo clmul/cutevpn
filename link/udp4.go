@@ -9,60 +9,43 @@ import (
 
 type udp4 struct {
 	conn *net.UDPConn
-}
-
-type udp4Addr struct {
-	ip   cutevpn.IPv4
-	port int
-}
-
-func (a udp4Addr) String() string {
-	return fmt.Sprintf("%v:%v", a.ip, a.port)
+	peer cutevpn.LinkAddr
 }
 
 func init() {
 	cutevpn.RegisterLink("udp4", newUDP)
 }
 
-func newUDP(listen string) (cutevpn.Link, error) {
+func newUDP(_ cutevpn.Looper, listen, dial string) (cutevpn.Link, error) {
+	var peer cutevpn.LinkAddr
+	var err error
+	if dial != "" {
+		peer, err = parseAddrPort(dial)
+		if err != nil {
+			return nil, err
+		}
+	}
 	c, err := net.ListenPacket("udp4", listen)
 	if err != nil {
 		return nil, err
 	}
 	t := &udp4{
 		conn: c.(*net.UDPConn),
+		peer: peer,
 	}
 	return t, nil
-}
-
-func convertUDPAddr(udpAddr *net.UDPAddr) (a udp4Addr) {
-	a.port = udpAddr.Port
-	copy(a.ip[:], udpAddr.IP.To4())
-	return a
-}
-
-func convertToUDPAddr(a udp4Addr) *net.UDPAddr {
-	udpAddr := net.UDPAddr{
-		IP:   net.IP(a.ip[:]),
-		Port: int(a.port),
-	}
-	return &udpAddr
 }
 
 func (t *udp4) ToString(dst cutevpn.LinkAddr) string {
 	return fmt.Sprintf("udp4 %v->%v", t.conn.LocalAddr(), dst)
 }
 
-func (t *udp4) ParseAddr(addr string) (cutevpn.LinkAddr, error) {
-	udpAddr, err := net.ResolveUDPAddr("udp4", addr)
-	if err != nil {
-		return nil, err
-	}
-	return convertUDPAddr(udpAddr), nil
+func (t *udp4) Peer() cutevpn.LinkAddr {
+	return t.peer
 }
 
 func (t *udp4) Send(packet []byte, addr cutevpn.LinkAddr) error {
-	_, err := t.conn.WriteToUDP(packet, convertToUDPAddr(addr.(udp4Addr)))
+	_, err := t.conn.WriteToUDP(packet, convertToUDPAddr(addr.(AddrPort)))
 	return err
 }
 

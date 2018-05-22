@@ -3,8 +3,10 @@
 package socket
 
 import (
+	"log"
+
 	"github.com/clmul/cutevpn"
-	"github.com/songgao/water"
+	"github.com/clmul/water"
 )
 
 func init() {
@@ -13,21 +15,19 @@ func init() {
 
 type tun struct {
 	ifce *water.Interface
-	vpn  *cutevpn.VPN
+	loop cutevpn.Looper
 }
 
-func openTun(vpn *cutevpn.VPN, cidr, gateway string, mtu int) (cutevpn.Socket, error) {
-	ifce, err := water.New(water.Config{
-		DeviceType: water.TUN,
-	})
+func openTun(loop cutevpn.Looper, cidr, gateway string, mtu uint32) (cutevpn.Socket, error) {
+	ifce, err := water.New(water.Config{})
 	if err != nil {
 		return nil, err
 	}
 	t := tun{
 		ifce: ifce,
-		vpn:  vpn,
+		loop: loop,
 	}
-	err = t.setIP(cidr, gateway)
+	err = t.setIP(cidr)
 	if err != nil {
 		return nil, err
 	}
@@ -45,14 +45,24 @@ func (t tun) Close() error {
 func (t tun) Send(packet []byte) {
 	_, err := t.ifce.Write(packet)
 	if err != nil {
-		t.vpn.SocketErr(err)
+		select {
+		case <-t.loop.Done():
+		default:
+			log.Fatal(err)
+		}
 	}
 }
 
 func (t tun) Recv(packet []byte) int {
 	n, err := t.ifce.Read(packet)
 	if err != nil {
-		t.vpn.SocketErr(err)
+		if err != nil {
+			select {
+			case <-t.loop.Done():
+			default:
+				log.Fatal(err)
+			}
+		}
 		return 0
 	}
 	if packet[0]>>4 != 4 {

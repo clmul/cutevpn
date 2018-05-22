@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func (t tun) setIP(localCIDR, _ string) error {
+func (t tun) setIP(localCIDR string) error {
 	cmd := exec.Command("ip", "link", "set", t.ifce.Name(), "up")
 	log.Println(strings.Join(cmd.Args, " "))
 	output, err := cmd.CombinedOutput()
@@ -24,7 +24,7 @@ func (t tun) setIP(localCIDR, _ string) error {
 	return nil
 }
 
-func (t tun) setMTU(mtu int) error {
+func (t tun) setMTU(mtu uint32) error {
 	cmd := exec.Command("ip", "link", "set", t.ifce.Name(), "mtu", fmt.Sprint(mtu))
 	log.Println(strings.Join(cmd.Args, " "))
 	output, err := cmd.CombinedOutput()

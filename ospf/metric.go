@@ -24,23 +24,25 @@ func (m *metric) Value() uint64 {
 	if age > RouterDeadInterval {
 		return uint64(MaxMetric)
 	}
-	if len(m.rtts) == 1 {
-		return m.rtts[0].d
-	}
 
-	// avg(rtts) * (packet received rate) ** (-2)
+	// avg(rtts) * (packet received rate) ** (-3)
 	var sum uint64
 	for _, rtt := range m.rtts {
 		sum += rtt.d
 	}
 	interval := uint64(HelloInterval)
-	d := m.rtts[len(m.rtts)-1].t - m.rtts[0].t
-	d += interval / 2
+	d := nanotime() - m.rtts[0].t
+	if d > uint64(time.Second) {
+		d -= uint64(time.Second)
+	}
 	helloTimes := d/interval + 1
 	receivedTimes := uint64(len(m.rtts))
+	if helloTimes < receivedTimes {
+		helloTimes = receivedTimes
+	}
 	ratio := helloTimes * 128 / receivedTimes
-	ratio *= ratio
-	return sum / uint64(len(m.rtts)) * ratio / 128 / 128
+	ratio = ratio * ratio * ratio
+	return sum / uint64(len(m.rtts)) * ratio / 128 / 128 / 128
 }
 
 func (m *metric) String() string {

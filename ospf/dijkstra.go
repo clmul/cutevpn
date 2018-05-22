@@ -1,23 +1,27 @@
 package ospf
 
 import (
-	"log"
-
 	"github.com/clmul/cutevpn"
 	"github.com/kirves/godijkstra/common/structs"
 	"github.com/kirves/godijkstra/dijkstra"
 )
 
-type graph map[cutevpn.IPv4]*linkState
+type graph struct {
+	m    map[cutevpn.IPv4]*linkState
+	self cutevpn.IPv4
+}
 
 func (g graph) SuccessorsForNode(node string) []dijkstrastructs.Connection {
 	var ip cutevpn.IPv4
 	copy(ip[:], node)
 	var result []dijkstrastructs.Connection
-	if _, ok := g[ip]; !ok {
+	if _, ok := g.m[ip]; !ok {
 		return nil
 	}
-	for dst, metric := range g[ip].msg.State {
+	for dst, metric := range g.m[ip].msg.State {
+		if dst == g.self {
+			continue
+		}
 		result = append(result, dijkstrastructs.Connection{
 			Destination: string(dst[:]),
 			// TODO: 3e9 nanoseconds overflow int on 32-bit machines
@@ -28,32 +32,22 @@ func (g graph) SuccessorsForNode(node string) []dijkstrastructs.Connection {
 }
 
 func (g graph) PredecessorsFromNode(node string) []dijkstrastructs.Connection {
-	return nil
+	panic("unused")
 }
 
 func (g graph) EdgeWeight(n1, n2 string) int {
-	var ip1, ip2 cutevpn.IPv4
-	copy(ip1[:], n1)
-	copy(ip2[:], n2)
-	return int(g[ip1].msg.State[ip2])
-
+	panic("unused")
 }
 
-func findPaths(self cutevpn.IPv4, neighbors graph) map[cutevpn.IPv4]cutevpn.IPv4 {
-	result := make(map[cutevpn.IPv4]cutevpn.IPv4)
-
-	for dst := range neighbors {
-		if dst == self {
-			continue
-		}
-		path, ok := dijkstra.SearchPath(neighbors, string(self[:]), string(dst[:]), dijkstra.VANILLA)
-		if !ok {
-			log.Printf("no path to %v", dst)
-			continue
-		}
-		var next cutevpn.IPv4
-		copy(next[:], path.Path[1].Node)
-		result[dst] = next
+func findShortest(self, from, to cutevpn.IPv4, neighbors map[cutevpn.IPv4]*linkState) (cutevpn.IPv4, cutevpn.IPv4, cutevpn.IPv4, uint64) {
+	g := graph{m: neighbors, self: self}
+	path, ok := dijkstra.SearchPath(g, string(from[:]), string(to[:]), dijkstra.VANILLA)
+	if !ok {
+		return cutevpn.EmptyIPv4, cutevpn.EmptyIPv4, cutevpn.EmptyIPv4, 0
 	}
-	return result
+	var zero, one, last cutevpn.IPv4
+	copy(zero[:], path.Path[0].Node)
+	copy(one[:], path.Path[1].Node)
+	copy(last[:], path.Path[len(path.Path)-2].Node)
+	return zero, one, last, uint64(path.Weight)
 }

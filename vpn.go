@@ -17,11 +17,19 @@ import (
 type VPN struct {
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     *sync.WaitGroup
+	wg     sync.WaitGroup
 
 	router     *router
 	linkCipher Cipher
 	http       HTTPServer
+}
+
+func NewVPN() *VPN {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &VPN{
+		ctx:    ctx,
+		cancel: cancel,
+	}
 }
 
 func (v *VPN) Stop() {
@@ -29,8 +37,8 @@ func (v *VPN) Stop() {
 	v.wg.Wait()
 }
 
-func (v *VPN) StartHTTP() {
-	v.http = StartHTTPServer(v.router.ip.String(), 19088)
+func (v *VPN) StartHTTP(addr string) {
+	v.http = StartHTTPServer(addr)
 	v.http.RegisterHandler(v.router)
 }
 
@@ -43,16 +51,6 @@ func (v *VPN) StopHTTP() {
 
 func (v *VPN) IP() IPv4 {
 	return v.router.ip
-}
-
-func (v *VPN) SocketErr(err error) {
-	select {
-	case <-v.ctx.Done():
-		return
-	default:
-		// TODO
-		log.Fatal(err)
-	}
 }
 
 func (v *VPN) CipherErr(err error) {
@@ -87,7 +85,8 @@ func (v *VPN) LinkSendErr(err error) {
 		log.Fatal(err)
 	}
 	switch errno {
-	case unix.ENETUNREACH:
+	case unix.ENETUNREACH, unix.ENOBUFS, unix.ENETDOWN, unix.EADDRNOTAVAIL:
+		log.Printf("0x%x %d, %v", int(errno), errno, errno)
 	default:
 		log.Println(int(errno))
 		log.Fatal(err)
@@ -96,8 +95,8 @@ func (v *VPN) LinkSendErr(err error) {
 	// write udp4 0.0.0.0:61147->35.194.178.51:15234: sendto: can't assign requested address
 }
 
-func (v *VPN) SendThrough(route Route, packet []byte) {
-	v.router.SendThrough(route, packet)
+func (v *VPN) Done() <-chan struct{} {
+	return v.ctx.Done()
 }
 
 func (v *VPN) Defer(f func()) {
@@ -126,6 +125,11 @@ func (v *VPN) Loop(f func(context.Context) error) {
 				return
 			}
 			if err != nil {
+				select {
+				case <-v.ctx.Done():
+					return
+				default:
+				}
 				log.Println(caller, err)
 				v.cancel()
 				return

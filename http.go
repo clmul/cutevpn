@@ -1,7 +1,6 @@
 package cutevpn
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"net/http/pprof"
@@ -23,10 +22,10 @@ func (h HTTPServer) RegisterHandler(router *router) {
 	})
 }
 
-func StartHTTPServer(host string, port int) HTTPServer {
+func StartHTTPServer(addr string) HTTPServer {
 	mux := http.NewServeMux()
 	server := &http.Server{
-		Addr:    fmt.Sprintf("%v:%v", host, port),
+		Addr:    addr,
 		Handler: mux,
 	}
 	mux.HandleFunc("/debug/pprof/", pprof.Index)

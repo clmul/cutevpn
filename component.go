@@ -1,20 +1,19 @@
 package cutevpn
 
 import (
+	"context"
 	"net"
 )
-
-const RoutingProtocolNumber = 89
 
 var links = make(map[string]LinkConstructor)
 var sockets = make(map[string]SocketConstructor)
 var ciphers = make(map[string]CipherConstructor)
 var routings = make(map[string]RoutingConstructor)
 
-type LinkConstructor func(listenAddr string) (Link, error)
-type SocketConstructor func(vpn *VPN, cidr, gateway string, mtu int) (Socket, error)
+type LinkConstructor func(loop Looper, listenAddr, dialAddr string) (Link, error)
+type SocketConstructor func(loop Looper, cidr, gateway string, mtu uint32) (Socket, error)
 type CipherConstructor func(secret string) (Cipher, error)
-type RoutingConstructor func(vpn *VPN, ip IPv4) Routing
+type RoutingConstructor func(loop Looper, ip IPv4) Routing
 
 func RegisterLink(name string, constructor LinkConstructor) {
 	links[name] = constructor
@@ -29,15 +28,13 @@ func RegisterRouting(name string, constructor RoutingConstructor) {
 	routings[name] = constructor
 }
 
-type LinkAddr interface{}
-
-type emptyLinkAddr struct{}
-
-func (addr emptyLinkAddr) String() string {
-	return "any"
+type Looper interface {
+	Defer(func())
+	Loop(func(context.Context) error)
+	Done() <-chan struct{}
 }
 
-var EmptyLinkAddr emptyLinkAddr
+type LinkAddr interface{}
 
 type IPv4 [4]byte
 
@@ -54,7 +51,7 @@ type Link interface {
 	Send(packet []byte, addr LinkAddr) error
 	Recv(packet []byte) (p []byte, addr LinkAddr, err error)
 	Close() error
-	ParseAddr(addr string) (LinkAddr, error)
+	Peer() LinkAddr
 	Overhead() int
 	ToString(dst LinkAddr) string
 }
@@ -73,7 +70,10 @@ type Cipher interface {
 
 type Routing interface {
 	Dump() []byte
-	PacketQueue() chan Packet
+	Inject(Packet)
+	SendQueue() chan Packet
 	AddIfce(Link, Route)
-	Get(IPv4) (Route, error)
+	GetBalance(dst IPv4) (Route, IPv4, error)
+	GetAdja(adja IPv4) (Route, error)
+	GetShortest(through IPv4) (Route, error)
 }

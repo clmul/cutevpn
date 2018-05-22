@@ -80,7 +80,6 @@ func NewHello(src cutevpn.IPv4, time1, time2 uint64, forwarded uint8) Hello {
 
 func (h header) marshal(b []byte) []byte {
 	b = b[:0]
-	b = append(b, cutevpn.RoutingProtocolNumber)
 	b = append(b, h.t)
 	b = append(b, h.Src[:]...)
 	b = appendUint64(b, bootTime)
@@ -114,11 +113,8 @@ func (h Hello) Marshal(b []byte) []byte {
 }
 
 func Unmarshal(p []byte) Message {
-	if p[0] != cutevpn.RoutingProtocolNumber {
-		log.Fatal("wrong protocol number")
-	}
 	var header header
-	pos := 1
+	pos := 0
 	header.t, pos = readUint8(p, pos)
 	header.Src, pos = readIPv4(p, pos)
 	header.BootTime, pos = readUint64(p, pos)

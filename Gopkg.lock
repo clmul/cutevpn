@@ -9,15 +9,56 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/armon/go-socks5"
+  name = "github.com/clmul/checksum"
   packages = ["."]
-  revision = "e75332964ef517daa070d7c38a9466a0d687e0a5"
+  revision = "711c60b98f5064a75668d23fb3e73b0542502f93"
 
 [[projects]]
   branch = "master"
   name = "github.com/clmul/go-windivert"
   packages = ["."]
   revision = "64b4d488f20d290d72c6db2168829c0cc9e8a2b6"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/clmul/netstack"
+  packages = ["."]
+  revision = "4a7b482af0902373c4bfef0186e4ab36d6fc7b00"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/clmul/socks5"
+  packages = ["."]
+  revision = "1a1592f2b65ee33abe9c8c64ac010aa61f3ee980"
+
+[[projects]]
+  name = "github.com/clmul/water"
+  packages = ["."]
+  revision = "b776344a7f446db31287813186d5f8b332573639"
+  version = "v0.0.1"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/google/netstack"
+  packages = [
+    "ilist",
+    "sleep",
+    "tcpip",
+    "tcpip/buffer",
+    "tcpip/header",
+    "tcpip/network/fragmentation",
+    "tcpip/network/hash",
+    "tcpip/network/ipv4",
+    "tcpip/ports",
+    "tcpip/seqnum",
+    "tcpip/stack",
+    "tcpip/transport/tcp",
+    "tcpip/transport/udp",
+    "tmutex",
+    "waiter"
+  ]
+  revision = "c51f3e90ad701f7737bc57bc13b0e32c40f88bcb"
+  source = "github.com/fuchsia-mirror/third_party-netstack"
 
 [[projects]]
   branch = "master"
@@ -31,16 +72,31 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/songgao/water"
+  name = "github.com/miekg/dns"
   packages = ["."]
-  revision = "526bc721d41a9182a5163a6336cfd8022a69427b"
-  source = "github.com/clmul/water"
+  revision = "350cd086d10de5abf283271115c7a33a94d778cd"
+
+[[projects]]
+  branch = "master"
+  name = "golang.org/x/crypto"
+  packages = [
+    "ed25519",
+    "ed25519/internal/edwards25519"
+  ]
+  revision = "1a580b3eff7814fc9b40602fd35256c63b50f491"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/net"
-  packages = ["context"]
-  revision = "309822c5b9b9f80db67f016069a12628d94fad34"
+  packages = [
+    "bpf",
+    "icmp",
+    "internal/iana",
+    "internal/socket",
+    "ipv4",
+    "ipv6"
+  ]
+  revision = "8e0cdda24ed423affc8f35c241e5e9b16180338e"
 
 [[projects]]
   branch = "master"
@@ -49,11 +105,11 @@
     "unix",
     "windows"
   ]
-  revision = "3dbebcf8efb6a5011a60c2b4591c1022a759af8a"
+  revision = "7c87d13f8e835d2fb3a70a2912c811ed0c1d241b"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "f6cf55f055a37fcfb1a5be0cb2512a32bbb8fe66b5693e1c82ff29aee38502d5"
+  inputs-digest = "aef644b57bb90e3445d0e19c780d1fd53513983de8a87455cd2e28eb267b56a9"
   solver-name = "gps-cdcl"
   solver-version = 1

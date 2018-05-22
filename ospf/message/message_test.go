@@ -6,12 +6,17 @@ import (
 	"testing"
 )
 
+func init() {
+	bootTime = 127
+}
+
 func TestMarshalHello(t *testing.T) {
-	h := NewHello(cutevpn.IPv4{192, 168, 123, 234}, 1, 2, 3, nil)
+	h := NewHello(cutevpn.IPv4{192, 168, 123, 234}, 1, 2, 3)
 
 	got := h.Marshal(make([]byte, 2048))
 	expected := []byte{
-		cutevpn.RoutingProtocolNumber, tHello, 192, 168, 123, 234,
+		tHello, 192, 168, 123, 234,
+		byte(bootTime), 0, 0, 0, 0, 0, 0, 0,
 		1, 0, 0, 0, 0, 0, 0, 0,
 		2, 0, 0, 0, 0, 0, 0, 0,
 		3,

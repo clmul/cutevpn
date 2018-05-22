@@ -1,11 +1,25 @@
 package ospf
 
-import "github.com/clmul/cutevpn"
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/clmul/cutevpn"
+)
 
 type adjacent struct {
 	BootTime uint64
 	Metric   uint64
 	Routes   map[cutevpn.Route]*metric
+}
+
+func (a *adjacent) MarshalJSON() ([]byte, error) {
+	data := map[string]interface{}{
+		"BootTime": time.Unix(0, int64(a.BootTime)).In(time.UTC),
+		"Metric":   time.Duration(a.Metric).String(),
+		"Routes":   a.Routes,
+	}
+	return json.Marshal(data)
 }
 
 func newAdjacent() *adjacent {
@@ -17,11 +31,14 @@ func newAdjacent() *adjacent {
 
 func (a *adjacent) GetRoutes() (routes RouteHeap) {
 	for r, m := range a.Routes {
+		metric := m.Value()
 		routes = append(routes, &RouteWithMetric{
-			R:      r,
-			Metric: m.Value(),
+			R:       r,
+			Metric:  metric,
+			current: metric,
 		})
 	}
+	routes.cut(1425) // min * 1.39
 	return routes
 }
 
@@ -32,10 +49,10 @@ func (a *adjacent) Update(route cutevpn.Route, rtt uint64) bool {
 		a.Routes[route] = m
 	}
 	m.Push(rtt)
-	return a.updateMetric()
+	return a.UpdateMetric()
 }
 
-func (a *adjacent) GetMinMetricAndDeleteDeadRoute() uint64 {
+func (a *adjacent) getMinMetricAndDeleteDeadRoute() uint64 {
 	var min = uint64(MaxMetric)
 	for r, m := range a.Routes {
 		v := m.Value()
@@ -50,9 +67,9 @@ func (a *adjacent) GetMinMetricAndDeleteDeadRoute() uint64 {
 	return min
 }
 
-func (a *adjacent) updateMetric() bool {
-	min := a.GetMinMetricAndDeleteDeadRoute()
-	if diff(min, a.Metric)*100/a.Metric > UpdateThreshold {
+func (a *adjacent) UpdateMetric() bool {
+	min := a.getMinMetricAndDeleteDeadRoute()
+	if diff(min, a.Metric)*128/a.Metric > UpdateThreshold {
 		a.Metric = min
 		return true
 	}
