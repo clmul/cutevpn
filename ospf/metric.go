@@ -3,6 +3,7 @@ package ospf
 import (
 	"fmt"
 	"time"
+	// for go:linkname
 	_ "unsafe"
 )
 

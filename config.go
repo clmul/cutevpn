@@ -2,6 +2,7 @@ package cutevpn
 
 import (
 	"log"
+	"time"
 )
 
 type Config struct {
@@ -60,6 +61,7 @@ func (conf *Config) Start() (vpn *VPN, err error) {
 		}
 		links = append(links, link)
 	}
+	time.Sleep(time.Second)
 
 	socket, err := sockets[conf.Socket](vpn, conf.CIDR, conf.Gateway, conf.MTU)
 	if err != nil {

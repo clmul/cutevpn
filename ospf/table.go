@@ -47,7 +47,7 @@ func newRouteTable() *table {
 func (rt *table) getBalance(addr cutevpn.IPv4) (cutevpn.Route, cutevpn.IPv4, error) {
 	proutes, ok := rt.balance[addr]
 	if !ok {
-		return cutevpn.Route{}, cutevpn.EmptyIPv4, cutevpn.NoRoute
+		return cutevpn.Route{}, cutevpn.EmptyIPv4, cutevpn.ErrNoRoute
 	}
 	routes := *proutes
 	next := routes[0].Next
@@ -61,7 +61,7 @@ func (rt *table) getBalance(addr cutevpn.IPv4) (cutevpn.Route, cutevpn.IPv4, err
 func (rt *table) getAdja(addr cutevpn.IPv4) (cutevpn.Route, error) {
 	proutes, ok := rt.adja[addr]
 	if !ok {
-		return cutevpn.Route{}, cutevpn.NoRoute
+		return cutevpn.Route{}, cutevpn.ErrNoRoute
 	}
 	routes := *proutes
 	r := routes[0].R
@@ -73,7 +73,7 @@ func (rt *table) getAdja(addr cutevpn.IPv4) (cutevpn.Route, error) {
 func (rt *table) getShortest(addr cutevpn.IPv4) (cutevpn.Route, error) {
 	next, ok := rt.shortest[addr]
 	if !ok {
-		return cutevpn.Route{}, cutevpn.NoRoute
+		return cutevpn.Route{}, cutevpn.ErrNoRoute
 	}
 	return rt.getAdja(next)
 }

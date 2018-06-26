@@ -33,7 +33,7 @@ type LinkStateUpdate struct {
 	State   map[cutevpn.IPv4]uint64
 }
 
-func NewLinkStateUpdate(src cutevpn.IPv4, owner cutevpn.IPv4, version uint64, state map[cutevpn.IPv4]uint64) LinkStateUpdate {
+func NewLinkStateUpdate(src, owner cutevpn.IPv4, version uint64, state map[cutevpn.IPv4]uint64) LinkStateUpdate {
 	lsu := LinkStateUpdate{
 		header:  header{t: tLinkStateUpdate, Src: src},
 		Owner:   owner,

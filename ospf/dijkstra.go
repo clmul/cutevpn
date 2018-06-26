@@ -39,13 +39,12 @@ func (g graph) EdgeWeight(n1, n2 string) int {
 	panic("unused")
 }
 
-func findShortest(self, from, to cutevpn.IPv4, neighbors map[cutevpn.IPv4]*linkState) (cutevpn.IPv4, cutevpn.IPv4, cutevpn.IPv4, uint64) {
+func findShortest(self, from, to cutevpn.IPv4, neighbors map[cutevpn.IPv4]*linkState) (zero, one, last cutevpn.IPv4, metric uint64) {
 	g := graph{m: neighbors, self: self}
 	path, ok := dijkstra.SearchPath(g, string(from[:]), string(to[:]), dijkstra.VANILLA)
 	if !ok {
 		return cutevpn.EmptyIPv4, cutevpn.EmptyIPv4, cutevpn.EmptyIPv4, 0
 	}
-	var zero, one, last cutevpn.IPv4
 	copy(zero[:], path.Path[0].Node)
 	copy(one[:], path.Path[1].Node)
 	copy(last[:], path.Path[len(path.Path)-2].Node)

@@ -2,8 +2,8 @@ package cutevpn
 
 import "errors"
 
-var StopLoop = errors.New("stop")
-var NoRoute = errors.New("no route to host")
+var ErrStopLoop = errors.New("stop")
+var ErrNoRoute = errors.New("no route to host")
 
-var NoIPv6 = errors.New("IPv6 is not supported")
-var InvalidIP = errors.New("invalid IP address")
+var ErrNoIPv6 = errors.New("IPv6 is not supported")
+var ErrInvalidIP = errors.New("invalid IP address")

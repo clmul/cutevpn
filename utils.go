@@ -5,11 +5,11 @@ import "net"
 func ParseIPv4(addr string) (ipv4 IPv4, err error) {
 	ip := net.ParseIP(addr)
 	if ip == nil {
-		return ipv4, InvalidIP
+		return ipv4, ErrInvalidIP
 	}
 	ip = ip.To4()
 	if ip == nil {
-		return ipv4, NoIPv6
+		return ipv4, ErrNoIPv6
 	}
 	copy(ipv4[:], ip)
 	return ipv4, nil
@@ -22,7 +22,7 @@ func ParseCIDR(cidr string) (ipv4 IPv4, ipnet *net.IPNet, err error) {
 	}
 	ip = ip.To4()
 	if ip == nil {
-		return ipv4, ipnet, NoIPv6
+		return ipv4, ipnet, ErrNoIPv6
 	}
 	copy(ipv4[:], ip)
 	return

@@ -1,16 +1,17 @@
 package link
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"sync"
-
-	"encoding/binary"
-	"github.com/clmul/cutevpn"
 	"time"
+
+	"github.com/clmul/cutevpn"
 )
 
 type tcp4 struct {
@@ -20,9 +21,8 @@ type tcp4 struct {
 	listen string
 	peer   AddrPort
 
-	conn     *net.TCPConn
 	listener *net.TCPListener
-	clients  sync.Map
+	conns    sync.Map
 }
 
 type packet struct {
@@ -48,7 +48,6 @@ func newTCP(loop cutevpn.Looper, listen, dial string) (cutevpn.Link, error) {
 		}
 		t.peer = peer.(AddrPort)
 		t.dial()
-		time.Sleep(time.Second)
 	}
 
 	if listen != "" {
@@ -84,16 +83,10 @@ func (t *tcp4) dial() {
 			return nil
 		}
 		log.Printf("connected to %v", conn.RemoteAddr())
-		t.conn = conn.(*net.TCPConn)
-		t.loop.Loop(func(ctx context.Context) error {
-			err := t.poll(ctx, t.conn, t.peer)
-			if err != nil {
-				t.onErr(err, t.peer)
-				return cutevpn.StopLoop
-			}
-			return nil
-		})
-		return cutevpn.StopLoop
+		c := conn.(*net.TCPConn)
+		t.conns.Store(t.peer, c)
+		t.poll(c, t.peer)
+		return cutevpn.ErrStopLoop
 	})
 }
 
@@ -103,51 +96,42 @@ func (t *tcp4) accept(ctx context.Context) error {
 		return err
 	}
 	addr := convertTCPAddr(conn.RemoteAddr().(*net.TCPAddr))
-	t.clients.Store(addr, conn)
-	t.loop.Loop(func(ctx context.Context) error {
-		err := t.poll(ctx, conn, addr)
-		if err != nil {
-			t.onErr(err, addr)
-			return cutevpn.StopLoop
-		}
-		return nil
-	})
+	t.conns.Store(addr, conn)
+	t.poll(conn, addr)
 	return nil
 }
 
 func (t *tcp4) onErr(err error, addr AddrPort) {
 	log.Printf("err %v on %v", err, addr)
+	c, ok := t.conns.Load(addr)
+	if ok {
+		t.conns.Delete(addr)
+		c.(*net.TCPConn).Close()
+	}
 	if addr == t.peer {
-		t.conn.Close()
-		t.conn = nil
 		t.dial()
-		return
 	}
-	c, ok := t.clients.Load(addr)
-	if !ok {
-		return
-	}
-	t.clients.Delete(addr)
-	c.(*net.TCPConn).Close()
 }
 
-func (t *tcp4) poll(ctx context.Context, conn *net.TCPConn, addr cutevpn.LinkAddr) (err error) {
-	size := make([]byte, 2)
-	err = conn.SetReadDeadline(time.Now().Add(time.Minute * 4))
-	if err != nil {
-		return err
-	}
-	_, err = io.ReadFull(conn, size)
-	if err != nil {
-		return err
-	}
-	payload := make([]byte, binary.LittleEndian.Uint16(size))
-	_, err = io.ReadFull(conn, payload)
-	if err != nil {
-		return err
-	}
-	t.in <- packet{payload: payload, addr: addr}
-	return nil
+func (t *tcp4) poll(conn *net.TCPConn, addr AddrPort) {
+	scanner := bufio.NewScanner(conn)
+	scanner.Split(split)
+	t.loop.Loop(func(ctx context.Context) error {
+		err := conn.SetReadDeadline(time.Now().Add(time.Minute * 4))
+		if err != nil {
+			t.onErr(err, addr)
+			return cutevpn.ErrStopLoop
+		}
+		if !scanner.Scan() {
+			t.onErr(scanner.Err(), addr)
+			return cutevpn.ErrStopLoop
+		}
+		payload := scanner.Bytes()
+		p := make([]byte, len(payload))
+		copy(p, payload)
+		t.in <- packet{payload: p, addr: addr}
+		return nil
+	})
 }
 
 func (t *tcp4) ToString(dst cutevpn.LinkAddr) string {
@@ -178,18 +162,57 @@ func (t *tcp4) Send(payload []byte, addr cutevpn.LinkAddr) error {
 	return nil
 }
 
+func nextSep(sep []byte) []byte {
+	for i := 0; i < len(sep); i++ {
+		sep[i]++
+		if sep[i] != 0 {
+			break
+		}
+		sep[i]++
+	}
+	if sep[len(sep)-1] != 0 {
+		sep = append(sep, 0)
+	}
+	return sep
+}
+
+func addSep(p []byte) []byte {
+	sep := []byte{0}
+	for ; bytes.Index(p, sep) >= 0; sep = nextSep(sep) {
+	}
+	r := make([]byte, 0, 2048)
+	r = append(r, sep...)
+	r = append(r, p...)
+	r = append(r, sep...)
+	return r
+}
+
+func split(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF {
+		return 0, nil, io.ErrUnexpectedEOF
+	}
+	sepLen := bytes.IndexByte(data, 0) + 1
+	if sepLen <= 0 {
+		return 0, nil, nil
+	}
+	sep := data[:sepLen]
+	end := bytes.Index(data[sepLen:], sep)
+	if end < 0 {
+		return 0, nil, nil
+	}
+	token = data[sepLen : end+sepLen]
+	advance = len(token) + 2*sepLen
+	return
+}
+
 func (t *tcp4) send(packet []byte, addr cutevpn.LinkAddr) {
 	var c *net.TCPConn
-	if addr == t.peer && t.conn != nil {
-		c = t.conn
+	conn, ok := t.conns.Load(addr)
+	if ok {
+		c = conn.(*net.TCPConn)
 	} else {
-		conn, ok := t.clients.Load(addr)
-		if ok {
-			c = conn.(*net.TCPConn)
-		} else {
-			log.Printf("unknown address %v", addr)
-			return
-		}
+		log.Printf("unknown address %v", addr)
+		return
 	}
 	err := c.SetWriteDeadline(time.Now().Add(time.Millisecond * 100))
 	if err != nil {
@@ -197,11 +220,8 @@ func (t *tcp4) send(packet []byte, addr cutevpn.LinkAddr) {
 		log.Println(err)
 		return
 	}
-	buffer := make([]byte, 2048)
-	binary.LittleEndian.PutUint16(buffer, uint16(len(packet)))
-	// TODO: encrypt size
-	n := copy(buffer[2:], packet)
-	_, err = c.Write(buffer[:2+n])
+	packet = addSep(packet)
+	_, err = c.Write(packet)
 	if err != nil {
 		c.Close()
 		log.Println(err)
@@ -219,10 +239,7 @@ func (t *tcp4) Close() error {
 	if t.listener != nil {
 		t.listener.Close()
 	}
-	if t.conn != nil {
-		t.conn.Close()
-	}
-	t.clients.Range(func(addr, conn interface{}) bool {
+	t.conns.Range(func(addr, conn interface{}) bool {
 		c := conn.(*net.TCPConn)
 		c.Close()
 		return true

@@ -121,7 +121,7 @@ func (v *VPN) Loop(f func(context.Context) error) {
 			default:
 			}
 			err := f(v.ctx)
-			if err == StopLoop {
+			if err == ErrStopLoop {
 				return
 			}
 			if err != nil {
