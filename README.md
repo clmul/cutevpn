@@ -32,13 +32,13 @@ Each link has 3 config items.
 
 #### Debug HTTP Server
 - `httpserver`, String. The listen address and port of the HTTP server.
-Some debug information can be fetch from this HTTP server.
+Some debug information can be fetched from this HTTP server.
 
 #### Extra configs
 These config items are not related to the VPN. They are some extra functions for convenience
 - `started`, String. Bash script which will be executed after the vpn started.
 - `stopped`, String. Bash script which will be executed after the vpn stopped.
-- `socks5server`, String. The listen address and port of the SOCKS5 server.
+- `socks5server`, String. The listen address and port of a SOCKS5 server.
 
 
 ## Build
