@@ -15,17 +15,17 @@ func init() {
 
 type tun struct {
 	ifce *water.Interface
-	loop cutevpn.Looper
+	vpn  cutevpn.VPN
 }
 
-func openTun(loop cutevpn.Looper, cidr, gateway string, mtu uint32) (cutevpn.Socket, error) {
+func openTun(vpn cutevpn.VPN, cidr, gateway string, mtu uint32) (cutevpn.Socket, error) {
 	ifce, err := water.New(water.Config{})
 	if err != nil {
 		return nil, err
 	}
 	t := tun{
 		ifce: ifce,
-		loop: loop,
+		vpn:  vpn,
 	}
 	err = t.setIP(cidr)
 	if err != nil {
@@ -46,7 +46,7 @@ func (t tun) Send(packet []byte) {
 	_, err := t.ifce.Write(packet)
 	if err != nil {
 		select {
-		case <-t.loop.Done():
+		case <-t.vpn.Done():
 		default:
 			log.Fatal(err)
 		}
@@ -58,7 +58,7 @@ func (t tun) Recv(packet []byte) int {
 	if err != nil {
 		if err != nil {
 			select {
-			case <-t.loop.Done():
+			case <-t.vpn.Done():
 			default:
 				log.Fatal(err)
 			}

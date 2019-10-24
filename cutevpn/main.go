@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"flag"
-	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -15,8 +15,9 @@ import (
 	"github.com/clmul/cutevpn"
 	_ "github.com/clmul/cutevpn/cipher"
 	_ "github.com/clmul/cutevpn/link"
-	_ "github.com/clmul/cutevpn/ospf"
+	_ "github.com/clmul/cutevpn/link/tcp4"
 	_ "github.com/clmul/cutevpn/socket"
+	"github.com/clmul/cutevpn/vpn"
 )
 
 var conf string
@@ -33,7 +34,6 @@ type Config struct {
 	HTTPServer   string
 	Started      string
 	Stopped      string
-	Comment      string
 }
 
 func defaultConf(conf *Config) {
@@ -41,15 +41,10 @@ func defaultConf(conf *Config) {
 		conf.Socket = "tun"
 	}
 	if conf.MTU == 0 {
-		conf.MTU = 1400
+		conf.MTU = 1350
 	}
 	if conf.Routing == "" {
 		conf.Routing = "ospf"
-	}
-	for i := range conf.Links {
-		if conf.Links[i].Link == "" {
-			conf.Links[i].Link = "udp4"
-		}
 	}
 }
 
@@ -59,12 +54,12 @@ func main() {
 		log.Fatal(err)
 	}
 	defaultConf(conf)
-	vpn, err := conf.Start()
+	v, err := vpn.Start(&conf.Config)
 	if err != nil {
 		log.Fatal(err)
 	}
 	if conf.HTTPServer != "" {
-		vpn.StartHTTP(conf.HTTPServer)
+		v.StartHTTP(conf.HTTPServer)
 	}
 
 	if conf.Started != "" {
@@ -82,9 +77,9 @@ func main() {
 	log.Println("received SIGINT")
 
 	if conf.HTTPServer != "" {
-		vpn.StopHTTP()
+		v.StopHTTP()
 	}
-	vpn.Stop()
+	v.Stop()
 	if conf.Stopped != "" {
 		bash(conf.Stopped)
 	}
@@ -101,14 +96,14 @@ func bash(script string) {
 }
 
 func parseConfigFile(filename string) (*Config, error) {
-	var conf Config
-	meta, err := toml.DecodeFile(filename, &conf)
+	d, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	undecoded := meta.Undecoded()
-	if len(undecoded) > 0 {
-		return nil, fmt.Errorf("unrecognized keys in config: %v", undecoded)
+	var conf Config
+	err = toml.Unmarshal(d, &conf)
+	if err != nil {
+		return nil, err
 	}
 	return &conf, err
 }

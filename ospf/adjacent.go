@@ -10,7 +10,7 @@ import (
 type adjacent struct {
 	BootTime uint64
 	Metric   uint64
-	Routes   map[cutevpn.Route]*metric
+	Routes   map[cutevpn.Route]metric
 }
 
 func (a *adjacent) MarshalJSON() ([]byte, error) {
@@ -24,15 +24,15 @@ func (a *adjacent) MarshalJSON() ([]byte, error) {
 
 func newAdjacent() *adjacent {
 	return &adjacent{
-		Metric: uint64(MaxMetric),
-		Routes: make(map[cutevpn.Route]*metric),
+		Metric: uint64(maxMetric),
+		Routes: make(map[cutevpn.Route]metric),
 	}
 }
 
-func (a *adjacent) GetRoutes() (routes RouteHeap) {
+func (a *adjacent) GetRoutes() (routes routeHeap) {
 	for r, m := range a.Routes {
 		metric := m.Value()
-		routes = append(routes, &RouteWithMetric{
+		routes = append(routes, &routeWithMetric{
 			R:       r,
 			Metric:  metric,
 			current: metric,
@@ -42,21 +42,17 @@ func (a *adjacent) GetRoutes() (routes RouteHeap) {
 	return routes
 }
 
-func (a *adjacent) Update(route cutevpn.Route, rtt uint64) bool {
-	m, ok := a.Routes[route]
-	if !ok {
-		m = &metric{}
-		a.Routes[route] = m
-	}
-	m.Push(rtt)
-	return a.UpdateMetric()
+func (a *adjacent) Update(route cutevpn.Route, rtt uint64) (newRoute, needUpdate bool) {
+	_, ok := a.Routes[route]
+	a.Routes[route] = a.Routes[route].Push(rtt)
+	return !ok, a.UpdateMetric()
 }
 
 func (a *adjacent) getMinMetricAndDeleteDeadRoute() uint64 {
-	var min = uint64(MaxMetric)
+	var min = uint64(maxMetric)
 	for r, m := range a.Routes {
 		v := m.Value()
-		if v == uint64(MaxMetric) {
+		if v == uint64(maxMetric) {
 			delete(a.Routes, r)
 			continue
 		}
@@ -68,9 +64,10 @@ func (a *adjacent) getMinMetricAndDeleteDeadRoute() uint64 {
 }
 
 func (a *adjacent) UpdateMetric() bool {
-	min := a.getMinMetricAndDeleteDeadRoute()
-	if diff(min, a.Metric)*128/a.Metric > UpdateThreshold {
-		a.Metric = min
+	old := a.Metric
+	new := a.getMinMetricAndDeleteDeadRoute()
+	if diff(old, new)*100 > old*updateThreshold {
+		a.Metric = new
 		return true
 	}
 	return false

@@ -1,52 +1,60 @@
 package ospf
 
-import (
-	"github.com/clmul/cutevpn"
-	"github.com/kirves/godijkstra/common/structs"
-	"github.com/kirves/godijkstra/dijkstra"
-)
-
-type graph struct {
-	m    map[cutevpn.IPv4]*linkState
-	self cutevpn.IPv4
+type path struct {
+	Nodes []IPv4
+	D     uint64
 }
 
-func (g graph) SuccessorsForNode(node string) []dijkstrastructs.Connection {
-	var ip cutevpn.IPv4
-	copy(ip[:], node)
-	var result []dijkstrastructs.Connection
-	if _, ok := g.m[ip]; !ok {
-		return nil
-	}
-	for dst, metric := range g.m[ip].msg.State {
-		if dst == g.self {
-			continue
+func copyLinkState(states map[IPv4]*linkState, without IPv4) map[IPv4]map[IPv4]uint64 {
+	neighbors := make(map[IPv4]map[IPv4]uint64, len(states))
+	for ip, state := range states {
+		if ip != without {
+			neighbors[ip] = state.msg.State
 		}
-		result = append(result, dijkstrastructs.Connection{
-			Destination: string(dst[:]),
-			// TODO: 3e9 nanoseconds overflow int on 32-bit machines
-			Weight: int(metric),
-		})
+	}
+	return neighbors
+}
+
+func shortests(from, without IPv4, states map[IPv4]*linkState) map[IPv4]path {
+	neighbors := copyLinkState(states, without)
+	return dijkstra(from, neighbors)
+}
+
+func dijkstra(from IPv4, graph map[IPv4]map[IPv4]uint64) map[IPv4]path {
+	distances := make(map[IPv4]path)
+	distances[from] = path{Nodes: []IPv4{from}, D: 0}
+	result := make(map[IPv4]path)
+	for len(distances) != 0 {
+		visit(from, distances, graph)
+		result[from] = distances[from]
+		delete(distances, from)
+		delete(graph, from)
+
+		var min = ^uint64(0)
+		for peer, path := range distances {
+			if path.D < min {
+				from = peer
+				min = path.D
+			}
+		}
 	}
 	return result
 }
 
-func (g graph) PredecessorsFromNode(node string) []dijkstrastructs.Connection {
-	panic("unused")
-}
-
-func (g graph) EdgeWeight(n1, n2 string) int {
-	panic("unused")
-}
-
-func findShortest(self, from, to cutevpn.IPv4, neighbors map[cutevpn.IPv4]*linkState) (zero, one, last cutevpn.IPv4, metric uint64) {
-	g := graph{m: neighbors, self: self}
-	path, ok := dijkstra.SearchPath(g, string(from[:]), string(to[:]), dijkstra.VANILLA)
-	if !ok {
-		return cutevpn.EmptyIPv4, cutevpn.EmptyIPv4, cutevpn.EmptyIPv4, 0
+func visit(current IPv4, distances map[IPv4]path, graph map[IPv4]map[IPv4]uint64) {
+	p := distances[current]
+	edges := graph[current]
+	d0 := p.D
+	nodes0 := p.Nodes
+	for adja, d := range edges {
+		_, ok := graph[adja]
+		if !ok {
+			continue
+		}
+		d1 := d0 + d
+		before, ok := distances[adja]
+		if !ok || before.D > d1 {
+			distances[adja] = path{Nodes: append(nodes0, adja), D: d1}
+		}
 	}
-	copy(zero[:], path.Path[0].Node)
-	copy(one[:], path.Path[1].Node)
-	copy(last[:], path.Path[len(path.Path)-2].Node)
-	return zero, one, last, uint64(path.Weight)
 }

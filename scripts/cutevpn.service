@@ -1,0 +1,14 @@
+[Unit]
+Description=cutevpn
+After=network-online.target network.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/cutevpn -config /etc/cutevpn.toml
+KillSignal=SIGINT
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

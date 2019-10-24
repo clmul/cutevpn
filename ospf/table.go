@@ -3,33 +3,35 @@ package ospf
 import (
 	"container/heap"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/clmul/cutevpn"
-	"sort"
 )
+
+type IPv4 = cutevpn.IPv4
 
 type table struct {
 	sync.Mutex
-	adja     map[cutevpn.IPv4]*RouteHeap
-	balance  map[cutevpn.IPv4]*RouteHeap
-	shortest map[cutevpn.IPv4]cutevpn.IPv4
+	adja     map[IPv4]*routeHeap
+	balance  map[IPv4]*routeHeap
+	shortest map[IPv4]IPv4
 }
 
-func (ospf *OSPF) GetBalance(dst cutevpn.IPv4) (cutevpn.Route, cutevpn.IPv4, error) {
+func (ospf *OSPF) GetBalance(dst IPv4) (cutevpn.Route, IPv4, error) {
 	ospf.routes.Lock()
 	defer ospf.routes.Unlock()
 	return ospf.routes.getBalance(dst)
 }
 
-func (ospf *OSPF) GetAdja(adja cutevpn.IPv4) (cutevpn.Route, error) {
+func (ospf *OSPF) GetAdja(adja IPv4) (cutevpn.Route, error) {
 	ospf.routes.Lock()
 	defer ospf.routes.Unlock()
 	return ospf.routes.getAdja(adja)
 }
 
-func (ospf *OSPF) GetShortest(through cutevpn.IPv4) (cutevpn.Route, error) {
+func (ospf *OSPF) GetShortest(through IPv4) (cutevpn.Route, error) {
 	ospf.routes.Lock()
 	defer ospf.routes.Unlock()
 	return ospf.routes.getShortest(through)
@@ -37,17 +39,17 @@ func (ospf *OSPF) GetShortest(through cutevpn.IPv4) (cutevpn.Route, error) {
 
 func newRouteTable() *table {
 	rt := &table{
-		adja:     make(map[cutevpn.IPv4]*RouteHeap),
-		balance:  make(map[cutevpn.IPv4]*RouteHeap),
-		shortest: make(map[cutevpn.IPv4]cutevpn.IPv4),
+		adja:     make(map[IPv4]*routeHeap),
+		balance:  make(map[IPv4]*routeHeap),
+		shortest: make(map[IPv4]IPv4),
 	}
 	return rt
 }
 
-func (rt *table) getBalance(addr cutevpn.IPv4) (cutevpn.Route, cutevpn.IPv4, error) {
+func (rt *table) getBalance(addr IPv4) (cutevpn.Route, IPv4, error) {
 	proutes, ok := rt.balance[addr]
 	if !ok {
-		return cutevpn.Route{}, cutevpn.EmptyIPv4, cutevpn.ErrNoRoute
+		return cutevpn.Route{}, emptyIPv4, cutevpn.ErrNoRoute
 	}
 	routes := *proutes
 	next := routes[0].Next
@@ -58,7 +60,7 @@ func (rt *table) getBalance(addr cutevpn.IPv4) (cutevpn.Route, cutevpn.IPv4, err
 	return r, through, err
 }
 
-func (rt *table) getAdja(addr cutevpn.IPv4) (cutevpn.Route, error) {
+func (rt *table) getAdja(addr IPv4) (cutevpn.Route, error) {
 	proutes, ok := rt.adja[addr]
 	if !ok {
 		return cutevpn.Route{}, cutevpn.ErrNoRoute
@@ -70,7 +72,7 @@ func (rt *table) getAdja(addr cutevpn.IPv4) (cutevpn.Route, error) {
 	return r, nil
 }
 
-func (rt *table) getShortest(addr cutevpn.IPv4) (cutevpn.Route, error) {
+func (rt *table) getShortest(addr IPv4) (cutevpn.Route, error) {
 	next, ok := rt.shortest[addr]
 	if !ok {
 		return cutevpn.Route{}, cutevpn.ErrNoRoute
@@ -78,51 +80,59 @@ func (rt *table) getShortest(addr cutevpn.IPv4) (cutevpn.Route, error) {
 	return rt.getAdja(next)
 }
 
-func (rt *table) Update(selfIP cutevpn.IPv4, adjacents map[cutevpn.IPv4]*adjacent, neighbors map[cutevpn.IPv4]*linkState) {
-	shortest := make(map[cutevpn.IPv4]cutevpn.IPv4)
-	for neighIP := range neighbors {
+func calcShortest(selfIP IPv4, boot uint64, states map[IPv4]*linkState) map[IPv4]IPv4 {
+	shortest := shortests(selfIP, emptyIPv4, states)
+	delete(shortest, selfIP)
+	for neighIP := range states {
 		if selfIP == neighIP {
 			continue
 		}
-		_, next, _, metric := findShortest(selfIP, selfIP, neighIP, neighbors)
-		if metric != 0 {
-			shortest[neighIP] = next
-		} else {
-			neigh := neighbors[neighIP]
-			if nanotime()-neigh.msg.Version > uint64(RouterDeadInterval) {
-				delete(neighbors, neighIP)
+		_, ok := shortest[neighIP]
+		if !ok {
+			neigh := states[neighIP]
+			if nanotime()-neigh.msg.Version > uint64(routerDeadInterval) {
+				if uint64(time.Now().UnixNano())-boot > uint64(routerDeadInterval) {
+					delete(states, neighIP)
+				}
 			}
 		}
 	}
-
-	adjaRoutes := make(map[cutevpn.IPv4]*RouteHeap)
-	for ip, adja := range adjacents {
-		routes := adja.GetRoutes()
-		heap.Init(&routes)
-		adjaRoutes[ip] = &routes
+	r := make(map[IPv4]IPv4)
+	for dst, p := range shortest {
+		r[dst] = p.Nodes[1]
 	}
+	return r
+}
 
-	balance := make(map[cutevpn.IPv4]*RouteHeap)
-	for neighIP := range neighbors {
-		var routes RouteHeap
-		for adjaIP := range adjacents {
-			metric0 := neighbors[selfIP].msg.State[adjaIP]
-			if neighIP == adjaIP {
-				routes = append(routes, &RouteWithMetric{
-					Next:    adjaIP,
-					Through: adjaIP,
-					Metric:  metric0,
-					current: metric0,
-				})
-				continue
+func calcBalance(selfIP IPv4, adjacents map[IPv4]*adjacent, states map[IPv4]*linkState) map[IPv4]*routeHeap {
+	balance := make(map[IPv4]*routeHeap)
+	selfLinkState, ok := states[selfIP]
+	if !ok {
+		return balance
+	}
+	shortestsFromAdja := make(map[IPv4]map[IPv4]path)
+	for adjaIP := range adjacents {
+		shortestsFromAdja[adjaIP] = shortests(adjaIP, selfIP, states)
+	}
+	for neighIP := range states {
+		if neighIP == selfIP {
+			continue
+		}
+		var routes routeHeap
+		for adjaIP, paths := range shortestsFromAdja {
+			metric0 := selfLinkState.msg.State[adjaIP]
+			through := adjaIP
+			if neighIP != adjaIP {
+				path, ok := paths[neighIP]
+				if !ok {
+					continue
+				}
+				through = path.Nodes[len(path.Nodes)-2]
 			}
-			next, _, last, metric := findShortest(selfIP, adjaIP, neighIP, neighbors)
-			if metric == 0 {
-				continue
-			}
-			routes = append(routes, &RouteWithMetric{
-				Next:    next,
-				Through: last,
+			metric := paths[neighIP].D
+			routes = append(routes, &routeWithMetric{
+				Next:    adjaIP,
+				Through: through,
 				Metric:  metric + metric0,
 				current: metric + metric0,
 			})
@@ -133,7 +143,19 @@ func (rt *table) Update(selfIP cutevpn.IPv4, adjacents map[cutevpn.IPv4]*adjacen
 			balance[neighIP] = &routes
 		}
 	}
+	return balance
+}
 
+func (rt *table) Update(selfIP IPv4, boot uint64, adjacents map[IPv4]*adjacent, states map[IPv4]*linkState) {
+	adjaRoutes := make(map[IPv4]*routeHeap)
+	for ip, adja := range adjacents {
+		routes := adja.GetRoutes()
+		heap.Init(&routes)
+		adjaRoutes[ip] = &routes
+	}
+
+	shortest := calcShortest(selfIP, boot, states)
+	balance := calcBalance(selfIP, adjacents, states)
 	rt.Lock()
 	rt.shortest = shortest
 	rt.adja = adjaRoutes
@@ -141,38 +163,38 @@ func (rt *table) Update(selfIP cutevpn.IPv4, adjacents map[cutevpn.IPv4]*adjacen
 	rt.Unlock()
 }
 
-type RouteWithMetric struct {
+type routeWithMetric struct {
 	R       cutevpn.Route
-	Next    cutevpn.IPv4
-	Through cutevpn.IPv4
+	Next    IPv4
+	Through IPv4
 	Metric  uint64
 	current uint64
 }
 
-func (r *RouteWithMetric) String() string {
+func (r *routeWithMetric) String() string {
 	if r.R.IsEmpty() {
 		return fmt.Sprintf("next %v through %v, %v", r.Next, r.Through, time.Duration(r.Metric))
 	}
 	return fmt.Sprintf("%v %v", r.R, time.Duration(r.Metric))
 }
 
-func (r *RouteWithMetric) MarshalText() ([]byte, error) {
+func (r *routeWithMetric) MarshalText() ([]byte, error) {
 	return []byte(r.String()), nil
 }
 
-type RouteHeap []*RouteWithMetric
+type routeHeap []*routeWithMetric
 
-func (h RouteHeap) Len() int           { return len(h) }
-func (h RouteHeap) Less(i, j int) bool { return h[i].current < h[j].current }
-func (h RouteHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *RouteHeap) Push(x interface{}) {
+func (h routeHeap) Len() int           { return len(h) }
+func (h routeHeap) Less(i, j int) bool { return h[i].current < h[j].current }
+func (h routeHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *routeHeap) Push(x interface{}) {
 	panic("won't push")
 }
-func (h *RouteHeap) Pop() interface{} {
+func (h *routeHeap) Pop() interface{} {
 	panic("won't pop")
 }
 
-func (h *RouteHeap) cut(mul uint64) {
+func (h *routeHeap) cut(mul uint64) {
 	sort.Sort(h)
 	routes := *h
 	threshold := routes[0].Metric * mul / 1024
@@ -184,3 +206,5 @@ func (h *RouteHeap) cut(mul uint64) {
 	}
 	*h = routes
 }
+
+var emptyIPv4 IPv4

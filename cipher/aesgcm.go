@@ -45,6 +45,7 @@ func (a *aesgcm) Encrypt(packet []byte) []byte {
 	packet = a.cipher.Seal(packet[:0], nonce, packet, nil)
 	return append(packet, nonce...)
 }
+
 func (a *aesgcm) Decrypt(packet []byte) ([]byte, error) {
 	var err error
 	ns := a.cipher.NonceSize()
@@ -55,6 +56,7 @@ func (a *aesgcm) Decrypt(packet []byte) ([]byte, error) {
 	packet, err = a.cipher.Open(packet[:0], nonce, packet, nil)
 	return packet, err
 }
+
 func (a *aesgcm) Overhead() int {
 	return a.cipher.Overhead() + a.cipher.NonceSize()
 }

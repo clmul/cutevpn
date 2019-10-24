@@ -1,6 +1,9 @@
 package cutevpn
 
-import "net"
+import (
+	"fmt"
+	"net"
+)
 
 func ParseIPv4(addr string) (ipv4 IPv4, err error) {
 	ip := net.ParseIP(addr)
@@ -38,4 +41,24 @@ func GetDstIP(packet []byte) IPv4 {
 	var ip IPv4
 	copy(ip[:], packet[16:20])
 	return ip
+}
+
+type AddrPort struct {
+	IP   IPv4
+	Port int
+}
+
+func (ap AddrPort) String() string {
+	return fmt.Sprintf("%v:%v", ap.IP, ap.Port)
+}
+
+func ConvertNetAddr(ip net.IP, port int) AddrPort {
+	r := AddrPort{}
+	copy(r.IP[:], ip.To4())
+	r.Port = port
+	return r
+}
+
+func ConvertToNetAddr(ap AddrPort) (ip net.IP, port int) {
+	return ap.IP[:], ap.Port
 }
