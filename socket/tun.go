@@ -9,16 +9,12 @@ import (
 	"github.com/clmul/water"
 )
 
-func init() {
-	cutevpn.RegisterSocket("tun", openTun)
-}
-
 type tun struct {
 	ifce *water.Interface
 	vpn  cutevpn.VPN
 }
 
-func openTun(vpn cutevpn.VPN, cidr, gateway string, mtu uint32) (cutevpn.Socket, error) {
+func openTun(vpn cutevpn.VPN, cidr string, mtu uint32) (cutevpn.Socket, error) {
 	ifce, err := water.New(water.Config{})
 	if err != nil {
 		return nil, err
@@ -56,12 +52,10 @@ func (t tun) Send(packet []byte) {
 func (t tun) Recv(packet []byte) int {
 	n, err := t.ifce.Read(packet)
 	if err != nil {
-		if err != nil {
-			select {
-			case <-t.vpn.Done():
-			default:
-				log.Fatal(err)
-			}
+		select {
+		case <-t.vpn.Done():
+		default:
+			log.Fatal(err)
 		}
 		return 0
 	}

@@ -49,7 +49,7 @@ func newConn(vpn *VPN) *conn {
 func (c *conn) AddLink(link cutevpn.Link) {
 	msg := fmt.Sprintf("link %v connected", link.ToString(link.Peer()))
 	if link.Overhead() >= 0 {
-		overhead := c.vpn.cipher.Overhead() + link.Overhead() + tailSize
+		overhead := link.Overhead() + tailSize
 		msg += fmt.Sprintf(", overhead is %v", overhead)
 	}
 	log.Println(msg)
@@ -57,16 +57,11 @@ func (c *conn) AddLink(link cutevpn.Link) {
 		payload := make([]byte, 2048)
 		payload, linkAddr, err := link.Recv(payload)
 		if err != nil {
+			log.Println(err)
 			link.Cancel()
 			return cutevpn.ErrStopLoop
 		}
 		if len(payload) == 0 {
-			return nil
-		}
-		payload, err = c.vpn.cipher.Decrypt(payload)
-		if err != nil {
-			// Maybe some peers' secret is outdated
-			log.Println(err)
 			return nil
 		}
 
@@ -109,7 +104,6 @@ func (c *conn) Send(p packet) {
 	copy(tail[5:], p.via[:])
 	payload := append(p.payload, tail[:]...)
 
-	payload = c.vpn.cipher.Encrypt(payload)
 	route := p.route
 	err := route.Link.Send(payload, route.Addr)
 	if err != nil {

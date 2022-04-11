@@ -1,88 +1,88 @@
 package vpn
 
 import (
-	"context"
+	"errors"
 	"log"
 	"net/url"
 
 	"github.com/clmul/cutevpn"
+	"github.com/clmul/cutevpn/link"
 	"github.com/clmul/cutevpn/ospf"
+	"github.com/clmul/cutevpn/socket"
 )
 
-func Start(conf *cutevpn.Config) (vpn *VPN, err error) {
-	vpn = NewVPN(conf.Name)
+func checkConfig(conf *cutevpn.Config) error {
+	if conf.DefaultRoute {
+		if conf.Gateway == "" {
+			return errors.New("no gateway to set default route")
+		}
+	}
+	return nil
+}
 
+func StartWithSocket(conf *cutevpn.Config, vpn *VPN, sock cutevpn.Socket) (err error) {
 	defer func() {
 		if err != nil {
 			vpn.Stop()
 		}
 	}()
 
-	Cipher, err := cutevpn.GetCipher(conf.Cipher)
-	if err != nil {
-		return vpn, err
-	}
-	cipher, err := Cipher(conf.Secret)
-	if err != nil {
-		return vpn, err
-	}
-	vpn.cipher = cipher
-
-	Socket, err := cutevpn.GetSocket(conf.Socket)
-	if err != nil {
-		return vpn, err
-	}
-	socket, err := Socket(vpn, conf.CIDR, conf.Gateway, conf.MTU)
-	if err != nil {
-		return vpn, err
-	}
-
-	vpn.Defer(func() {
-		err := socket.Close()
-		if err != nil {
-			log.Println(err)
-		}
-	})
-
 	vpn.conn = newConn(vpn)
 
 	ip, ipnet, err := cutevpn.ParseCIDR(conf.CIDR)
 	if err != nil {
-		return vpn, err
+		return err
 	}
 
 	var gateway cutevpn.IPv4
 	if conf.Gateway != "" {
 		gateway, err = cutevpn.ParseIPv4(conf.Gateway)
 		if err != nil {
-			return vpn, err
+			return err
 		}
 	}
 
 	vpn.routing = ospf.New(vpn, ip, false)
-	vpn.router, err = newRouter(ip, ipnet, gateway, vpn.conn, vpn.routing, socket)
+	vpn.router, err = newRouter(ip, ipnet, gateway, conf.Routes, vpn.conn, vpn.routing, sock)
 	if err != nil {
-		return vpn, err
+		return err
 	}
 	vpn.router.Start(vpn)
 
 	for _, linkURL := range conf.Links {
 		parsedURL, err := url.Parse(linkURL)
 		if err != nil {
-			return vpn, err
+			return err
 		}
-		ctx, cancel := context.WithCancel(vpn.ctx)
-		Link, err := cutevpn.GetLink(parsedURL.Scheme)
+		li, err := link.New(vpn, parsedURL, conf.CACert, conf.Cert, conf.Key)
 		if err != nil {
-			return vpn, err
+			return err
 		}
-		link, err := Link(vpn, ctx, cancel, parsedURL)
-		if err != nil {
-			return vpn, err
-		}
-		if link != nil {
-			vpn.AddLink(link)
+		if li != nil {
+			vpn.AddLink(li)
 		}
 	}
-	return vpn, nil
+	if conf.DefaultRoute {
+		err = vpn.addDefaultRoute(conf.Gateway)
+	}
+	return err
+}
+
+func Start(conf *cutevpn.Config) (*VPN, error) {
+	err := checkConfig(conf)
+	if err != nil {
+		return nil, err
+	}
+	vpn := NewVPN(conf.Name)
+	sock, err := socket.New(conf.Socket, vpn, conf.CIDR, conf.MTU)
+	if err != nil {
+		return nil, err
+	}
+	vpn.Defer(func() {
+		err := sock.Close()
+		if err != nil {
+			log.Println(err)
+		}
+	})
+	return vpn, StartWithSocket(conf, vpn, sock)
 }

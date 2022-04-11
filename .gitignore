@@ -1,4 +1,6 @@
 *.exe
+*.cer
+*.key
 /cutevpn/cutevpn
 
 /cutevpn/*.toml

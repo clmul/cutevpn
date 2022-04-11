@@ -10,14 +10,11 @@ import (
 	"os/signal"
 
 	"github.com/BurntSushi/toml"
-	"github.com/clmul/socks5"
+	"golang.org/x/sys/unix"
 
 	"github.com/clmul/cutevpn"
-	_ "github.com/clmul/cutevpn/cipher"
-	_ "github.com/clmul/cutevpn/link"
-	_ "github.com/clmul/cutevpn/link/tcp4"
-	_ "github.com/clmul/cutevpn/socket"
 	"github.com/clmul/cutevpn/vpn"
+	"github.com/clmul/socks5"
 )
 
 var conf string
@@ -43,9 +40,6 @@ func defaultConf(conf *Config) {
 	if conf.MTU == 0 {
 		conf.MTU = 1350
 	}
-	if conf.Routing == "" {
-		conf.Routing = "ospf"
-	}
 }
 
 func main() {
@@ -67,7 +61,7 @@ func main() {
 	}
 
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, os.Interrupt, unix.SIGTERM)
 
 	if conf.SOCKS5Server != "" {
 		go socks5Server(conf.SOCKS5Server)

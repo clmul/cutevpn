@@ -16,6 +16,7 @@ type router struct {
 	ip      cutevpn.IPv4
 	ipnet   *net.IPNet
 	gateway cutevpn.IPv4
+	table   routeTable
 
 	gatewayUpdateCh chan string
 
@@ -23,7 +24,11 @@ type router struct {
 	routing     *ospf.OSPF
 }
 
-func newRouter(ip cutevpn.IPv4, ipnet *net.IPNet, gateway cutevpn.IPv4, conn *conn, routing *ospf.OSPF, socket cutevpn.Socket) (*router, error) {
+func newRouter(ip cutevpn.IPv4, ipnet *net.IPNet, gateway cutevpn.IPv4, routes []string, conn *conn, routing *ospf.OSPF, socket cutevpn.Socket) (*router, error) {
+	table, err := parseRouteTable(ipnet, routes)
+	if err != nil {
+		return nil, err
+	}
 	r := &router{
 		conn:   conn,
 		socket: socket,
@@ -31,6 +36,7 @@ func newRouter(ip cutevpn.IPv4, ipnet *net.IPNet, gateway cutevpn.IPv4, conn *co
 		ip:      ip,
 		ipnet:   ipnet,
 		gateway: gateway,
+		table:   table,
 
 		gatewayUpdateCh: make(chan string, 1),
 
@@ -92,23 +98,9 @@ func (r *router) forwardFromConn(pack packet, routing *ospf.OSPF) {
 		var err error
 		var route cutevpn.Route
 
-		switch {
-		case pack.via == r.ip:
-			route, err = r.routing.GetAdja(pack.dst)
-			if err != nil {
-				// no route to host
-				return
-			}
-		case pack.via == emptyIPv4:
-			route, pack.via, err = r.routing.GetBalance(pack.dst)
-			if err != nil {
-				return
-			}
-		default:
-			route, err = r.routing.GetShortest(pack.via)
-			if err != nil {
-				return
-			}
+		route, err = r.routing.GetShortest(pack.dst)
+		if err != nil {
+			return
 		}
 
 		r.conn.Forward(r.ip, route, pack)
@@ -125,18 +117,21 @@ func (r *router) forwardFromSocket(payload []byte) {
 		return
 	}
 	if !r.ipnet.Contains(dst[:]) {
-		if r.gateway == emptyIPv4 {
+		dst = r.table.Get(dst)
+		if dst == emptyIPv4 {
+			dst = r.gateway
+		}
+		if dst == emptyIPv4 {
 			log.Printf("dropped a packet, dst is %v, gateway is empty", dst)
 			return
 		}
-		dst = r.gateway
 	}
-	route, through, err := r.routing.GetBalance(dst)
+	route, err := r.routing.GetShortest(dst)
 	if err != nil {
 		// no route to host
 		return
 	}
-	r.conn.Send(packet{route: route, flags: flagDefault, dst: dst, via: through, payload: payload})
+	r.conn.Send(packet{route: route, flags: flagDefault, dst: dst, via: emptyIPv4, payload: payload})
 }
 
 var emptyIPv4 cutevpn.IPv4

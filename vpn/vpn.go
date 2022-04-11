@@ -20,7 +20,6 @@ type VPN struct {
 
 	conn    *conn
 	router  *router
-	cipher  cutevpn.Cipher
 	routing *ospf.OSPF
 
 	http httpServer
@@ -37,10 +36,6 @@ func NewVPN(name string) *VPN {
 
 func (v *VPN) Name() string {
 	return v.name
-}
-
-func (v *VPN) Cipher() cutevpn.Cipher {
-	return v.cipher
 }
 
 func (v *VPN) AddLink(link cutevpn.Link) {

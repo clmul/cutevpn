@@ -13,7 +13,7 @@ deploy() {
     export GOARCH=$(ssh $host 'bash -c "go env GOARCH"')
     echo $GOOS $GOARCH
 
-    go build -o cute github.com/clmul/cutevpn/cutevpn
+    CGO_ENABLED=0 go build -o cute github.com/clmul/cutevpn/cutevpn
     ssh $host 'rm ~/cute/cute' || true
     scp cute $host:~/cute/
     scp $conf $host:~/cute/config.toml

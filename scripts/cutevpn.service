@@ -5,10 +5,14 @@ After=network-online.target network.target
 [Service]
 Type=exec
 ExecStart=/usr/local/bin/cutevpn -config /etc/cutevpn.toml
+Restart=on-failure
+RestartSec=10s
 KillSignal=SIGINT
 PrivateTmp=true
 ProtectHome=true
-ProtectSystem=strict
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectControlGroups=true
 
 [Install]
 WantedBy=multi-user.target

@@ -10,17 +10,13 @@ import (
 	"github.com/google/netstack"
 )
 
-func init() {
-	cutevpn.RegisterSocket("socks5", openSocks5)
-}
-
 type t struct {
 	vpn    cutevpn.VPN
 	stack  *netstack.Endpoint
 	server *socks5.Server
 }
 
-func openSocks5(vpn cutevpn.VPN, cidr, gateway string, mtu uint32) (cutevpn.Socket, error) {
+func openSocks5(vpn cutevpn.VPN, cidr string, mtu uint32) (cutevpn.Socket, error) {
 	stack, err := netstack.New(cidr, mtu)
 	if err != nil {
 		return nil, err

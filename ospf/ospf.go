@@ -203,6 +203,7 @@ func (ospf *OSPF) handlePacket(packet Packet) {
 func (ospf *OSPF) handleHello(hello message.Hello, route cutevpn.Route) {
 	var start uint64
 	src := hello.Src
+	bootTime := hello.BootTime
 	switch hello.Forwarded {
 	case 0:
 		hello.Time2 = nanotime()
@@ -223,7 +224,7 @@ func (ospf *OSPF) handleHello(hello message.Hello, route cutevpn.Route) {
 		start = hello.Time2
 	}
 	rtt := nanotime() - start
-	ospf.updateMetric(src, route, hello.BootTime, rtt)
+	ospf.updateMetric(src, route, bootTime, rtt)
 }
 
 func (ospf *OSPF) updateMetric(src IPv4, route cutevpn.Route, bootTime, rtt uint64) {

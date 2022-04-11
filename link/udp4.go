@@ -18,11 +18,8 @@ type udp4 struct {
 	cancel context.CancelFunc
 }
 
-func init() {
-	cutevpn.RegisterLink("udp4", newUDP)
-}
-
-func newUDP(vpn cutevpn.VPN, ctx context.Context, cancel context.CancelFunc, linkURL *url.URL) (cutevpn.Link, error) {
+func newUDP(vpn cutevpn.VPN, ctx context.Context, linkURL *url.URL) (cutevpn.Link, error) {
+	ctx, cancel := context.WithCancel(ctx)
 	t := &udp4{
 		ctx:    ctx,
 		cancel: cancel,

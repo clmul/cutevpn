@@ -31,10 +31,10 @@ func (ospf *OSPF) GetAdja(adja IPv4) (cutevpn.Route, error) {
 	return ospf.routes.getAdja(adja)
 }
 
-func (ospf *OSPF) GetShortest(through IPv4) (cutevpn.Route, error) {
+func (ospf *OSPF) GetShortest(dst IPv4) (cutevpn.Route, error) {
 	ospf.routes.Lock()
 	defer ospf.routes.Unlock()
-	return ospf.routes.getShortest(through)
+	return ospf.routes.getShortest(dst)
 }
 
 func newRouteTable() *table {
@@ -83,20 +83,6 @@ func (rt *table) getShortest(addr IPv4) (cutevpn.Route, error) {
 func calcShortest(selfIP IPv4, boot uint64, states map[IPv4]*linkState) map[IPv4]IPv4 {
 	shortest := shortests(selfIP, emptyIPv4, states)
 	delete(shortest, selfIP)
-	for neighIP := range states {
-		if selfIP == neighIP {
-			continue
-		}
-		_, ok := shortest[neighIP]
-		if !ok {
-			neigh := states[neighIP]
-			if nanotime()-neigh.msg.Version > uint64(routerDeadInterval) {
-				if uint64(time.Now().UnixNano())-boot > uint64(routerDeadInterval) {
-					delete(states, neighIP)
-				}
-			}
-		}
-	}
 	r := make(map[IPv4]IPv4)
 	for dst, p := range shortest {
 		r[dst] = p.Nodes[1]

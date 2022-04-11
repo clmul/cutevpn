@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -e
-
 deploy() {
     conf=$1
     host=${conf%.*}

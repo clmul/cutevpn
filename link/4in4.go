@@ -21,11 +21,8 @@ type iviniv struct {
 
 var singletons [256]*net.IPConn
 
-func init() {
-	cutevpn.RegisterLink("iviniv", new4in4)
-}
-
-func new4in4(vpn cutevpn.VPN, ctx context.Context, cancel context.CancelFunc, linkURL *url.URL) (cutevpn.Link, error) {
+func new4in4(vpn cutevpn.VPN, ctx context.Context, linkURL *url.URL) (cutevpn.Link, error) {
+	ctx, cancel := context.WithCancel(ctx)
 	link := &iviniv{
 		ctx:    ctx,
 		cancel: cancel,
