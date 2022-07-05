@@ -89,11 +89,11 @@ func New(vpn cutevpn.VPN, ip IPv4, isLeaf bool) *OSPF {
 		tasks:      make(chan func()),
 	}
 	adjaCheckTick := time.NewTicker(adjaCheckInterval)
-	vpn.Defer(adjaCheckTick.Stop)
+	vpn.OnCancel(vpn.Context(), adjaCheckTick.Stop)
 	retryTick := time.NewTicker(retryInterval)
-	vpn.Defer(retryTick.Stop)
+	vpn.OnCancel(vpn.Context(), retryTick.Stop)
 	floodTick := time.NewTicker(floodInterval)
-	vpn.Defer(floodTick.Stop)
+	vpn.OnCancel(vpn.Context(), floodTick.Stop)
 	vpn.Loop(func(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
@@ -167,7 +167,7 @@ func (ospf *OSPF) AddLink(peer cutevpn.Route) {
 		packet := msg.Marshal(make([]byte, 2048), ospf.ip, ospf.boot)
 		select {
 		case ospf.out <- Packet{Payload: packet, Route: peer}:
-		case <-ospf.vpn.Done():
+		case <-ospf.vpn.Context().Done():
 		}
 	}
 	sendHello()
@@ -177,7 +177,7 @@ func (ospf *OSPF) AddLink(peer cutevpn.Route) {
 		defer tick.Stop()
 		for {
 			select {
-			case <-ospf.vpn.Done():
+			case <-ospf.vpn.Context().Done():
 				return
 			case <-tick.C:
 				sendHello()
@@ -239,7 +239,7 @@ func (ospf *OSPF) updateMetric(src IPv4, route cutevpn.Route, bootTime, rtt uint
 		ospf.vpn.Go(func() {
 			<-route.Link.Done()
 			select {
-			case <-ospf.vpn.Done():
+			case <-ospf.vpn.Context().Done():
 			case ospf.deadRoutes <- deadRoute{src, route}:
 			}
 		})

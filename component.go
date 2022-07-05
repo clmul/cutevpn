@@ -13,10 +13,6 @@ type Config struct {
 	Gateway string
 	Routes  []string
 
-	CACert string
-	Cert   string
-	Key    string
-
 	Socket string
 	Links  []string
 
@@ -27,9 +23,8 @@ type VPN interface {
 	Name() string
 	// Call f in a new goroutine and wait it to return before exiting.
 	Go(f func())
-	Done() <-chan struct{}
 	Loop(f func(context.Context) error)
-	Defer(f func())
+	Context() context.Context
 	OnCancel(ctx context.Context, f func())
 
 	AddLink(link Link)
@@ -43,6 +38,12 @@ func (ip IPv4) String() string {
 
 func (ip IPv4) MarshalText() (text []byte, err error) {
 	return []byte(ip.String()), nil
+}
+
+type Cipher interface {
+	Encrypt([]byte) []byte
+	Decrypt([]byte) ([]byte, error)
+	Overhead() int
 }
 
 // LinkAddr is something like MAC address.

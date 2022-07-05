@@ -73,12 +73,8 @@ func (v *VPN) Neighbors() []ospf.Neighbor {
 	return v.routing.Neighbors()
 }
 
-func (v *VPN) Done() <-chan struct{} {
-	return v.ctx.Done()
-}
-
-func (v *VPN) Defer(f func()) {
-	v.OnCancel(v.ctx, f)
+func (v *VPN) Context() context.Context {
+	return v.ctx
 }
 
 func (v *VPN) OnCancel(ctx context.Context, f func()) {

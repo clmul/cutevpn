@@ -1,4 +1,4 @@
-package cipher
+package encryption
 
 import (
 	"crypto/aes"
@@ -11,15 +11,11 @@ import (
 	"github.com/clmul/cutevpn"
 )
 
-func init() {
-	cutevpn.RegisterCipher("aesgcm", newCipher)
-}
-
-type aesgcm struct {
+type AESGCM struct {
 	cipher cipher.AEAD
 }
 
-func newCipher(secret string) (cutevpn.Cipher, error) {
+func NewAESGCM(secret string) (cutevpn.Cipher, error) {
 	key, err := hex.DecodeString(secret)
 	if err != nil {
 		return nil, err
@@ -32,11 +28,11 @@ func newCipher(secret string) (cutevpn.Cipher, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &aesgcm{cipher: aead}
+	a := AESGCM{cipher: aead}
 	return a, nil
 }
 
-func (a *aesgcm) Encrypt(packet []byte) []byte {
+func (a AESGCM) Encrypt(packet []byte) []byte {
 	nonce := make([]byte, a.cipher.NonceSize())
 	_, err := rand.Read(nonce)
 	if err != nil {
@@ -46,7 +42,7 @@ func (a *aesgcm) Encrypt(packet []byte) []byte {
 	return append(packet, nonce...)
 }
 
-func (a *aesgcm) Decrypt(packet []byte) ([]byte, error) {
+func (a AESGCM) Decrypt(packet []byte) ([]byte, error) {
 	var err error
 	ns := a.cipher.NonceSize()
 	if len(packet) < ns {
@@ -57,6 +53,6 @@ func (a *aesgcm) Decrypt(packet []byte) ([]byte, error) {
 	return packet, err
 }
 
-func (a *aesgcm) Overhead() int {
+func (a AESGCM) Overhead() int {
 	return a.cipher.Overhead() + a.cipher.NonceSize()
 }

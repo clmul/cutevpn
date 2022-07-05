@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"golang.org/x/sys/unix"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -61,14 +62,14 @@ func (t *androidVPN) Start() error {
 }
 
 func (t *androidVPN) Stop() {
-	t.logFile.Close()
 	t.cvpn.Stop()
+	t.logFile.Close()
 	t.Close()
 }
 
 func (t *androidVPN) IsRunning() bool {
 	select {
-	case <-t.cvpn.Done():
+	case <-t.cvpn.Context().Done():
 		return false
 	default:
 		return true
@@ -93,6 +94,25 @@ func (t *androidVPN) GetNeighbors() Neighbors {
 	return &r
 }
 
+func setupCertFiles(dir string) (string, string, string) {
+	cacert := filepath.Join(dir, "ca.cer")
+	cert := filepath.Join(dir, "cer")
+	key := filepath.Join(dir, "key")
+	err := os.WriteFile(cacert, []byte(``), 0600)
+	if err != nil {
+		panic(err)
+	}
+	err = os.WriteFile(cert, []byte(``), 0600)
+	if err != nil {
+		panic(err)
+	}
+	err = os.WriteFile(key, []byte(``), 0600)
+	if err != nil {
+		panic(err)
+	}
+	return cacert, cert, key
+}
+
 func Setup(fd int, dir, name, ip, gateway, linksConf string) VPN {
 	logFileName := time.Now().UTC().Format("log-20060102-150405.txt")
 	logFile, err := os.OpenFile(filepath.Join(dir, logFileName), os.O_WRONLY|os.O_SYNC|os.O_CREATE, 0600)
@@ -102,11 +122,23 @@ func Setup(fd int, dir, name, ip, gateway, linksConf string) VPN {
 	log.SetOutput(logFile)
 	log.SetFlags(log.LstdFlags)
 	log.Println("hello")
+	cacert, cert, key := setupCertFiles(dir)
+
 	var links []string
 	for _, link := range strings.Split(linksConf, "\n") {
 		link = strings.TrimSpace(link)
 		if link != "" {
-			links = append(links, link)
+			u, err := url.Parse(link)
+			if err != nil {
+				panic(err)
+			}
+			q := u.Query()
+			q.Set("cacert", cacert)
+			q.Set("cert", cert)
+			q.Set("key", key)
+			u.RawQuery = q.Encode()
+
+			links = append(links, u.String())
 		}
 	}
 	err = unix.SetNonblock(fd, true)
@@ -123,12 +155,6 @@ func Setup(fd int, dir, name, ip, gateway, linksConf string) VPN {
 			Gateway:      gateway,
 			Links:        links,
 			DefaultRoute: false,
-
-			CACert: ``,
-
-			Cert: ``,
-
-			Key: ``,
 		},
 	}
 	return v
@@ -138,7 +164,7 @@ func (t *androidVPN) Send(packet []byte) {
 	_, err := t.Write(packet)
 	if err != nil {
 		select {
-		case <-t.cvpn.Done():
+		case <-t.cvpn.Context().Done():
 		default:
 			panic(err)
 		}
@@ -149,7 +175,7 @@ func (t *androidVPN) Recv(packet []byte) int {
 	n, err := t.Read(packet)
 	if err != nil {
 		select {
-		case <-t.cvpn.Done():
+		case <-t.cvpn.Context().Done():
 		default:
 			panic(err)
 		}

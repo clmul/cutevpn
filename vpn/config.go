@@ -54,12 +54,9 @@ func StartWithSocket(conf *cutevpn.Config, vpn *VPN, sock cutevpn.Socket) (err e
 		if err != nil {
 			return err
 		}
-		li, err := link.New(vpn, parsedURL, conf.CACert, conf.Cert, conf.Key)
+		err = link.New(vpn, parsedURL)
 		if err != nil {
 			return err
-		}
-		if li != nil {
-			vpn.AddLink(li)
 		}
 	}
 	if conf.DefaultRoute {
@@ -78,7 +75,7 @@ func Start(conf *cutevpn.Config) (*VPN, error) {
 	if err != nil {
 		return nil, err
 	}
-	vpn.Defer(func() {
+	vpn.OnCancel(vpn.Context(), func() {
 		err := sock.Close()
 		if err != nil {
 			log.Println(err)

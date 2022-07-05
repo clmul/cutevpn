@@ -3,9 +3,13 @@ package ospf
 import (
 	"fmt"
 	"time"
+
 	// for go:linkname
 	_ "unsafe"
 )
+
+//go:linkname nanotime runtime.nanotime
+func nanotime() uint64
 
 // The cost of a route
 type metric []rtt
@@ -65,6 +69,3 @@ func (m metric) Push(d uint64) metric {
 		return append(m[1:], rtt)
 	}
 }
-
-//go:linkname nanotime runtime.nanotime
-func nanotime() uint64

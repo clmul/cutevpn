@@ -1,4 +1,4 @@
-// +build darwin linux
+//go:build darwin || linux
 
 package socket
 
@@ -42,7 +42,7 @@ func (t tun) Send(packet []byte) {
 	_, err := t.ifce.Write(packet)
 	if err != nil {
 		select {
-		case <-t.vpn.Done():
+		case <-t.vpn.Context().Done():
 		default:
 			log.Fatal(err)
 		}
@@ -53,7 +53,7 @@ func (t tun) Recv(packet []byte) int {
 	n, err := t.ifce.Read(packet)
 	if err != nil {
 		select {
-		case <-t.vpn.Done():
+		case <-t.vpn.Context().Done():
 		default:
 			log.Fatal(err)
 		}

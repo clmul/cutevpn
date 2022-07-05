@@ -40,7 +40,7 @@ func (t tun) setIP(localCIDR string) error {
 	// Simulate a normal subnet on the point-to-point link.
 	cmd = exec.Command("route", "add", ipnet.String(), fakePeer.String())
 	log.Println(strings.Join(cmd.Args, " "))
-	// `route` on macOS always returns 0, so the err is always nil.
+	// `route` on macOS always returns 0, so err is always nil.
 	// Just let it print to stderr
 	cmd.Stderr = os.Stderr
 	err = cmd.Run()

@@ -49,7 +49,7 @@ func (v *VPN) addDefaultRoute(gateway string) error {
 		"rmdir /sys/fs/cgroup/net_cls/cutevpn",
 		"mv /etc/resolv.conf.orig /etc/resolv.conf",
 	}
-	v.Defer(func() {
+	v.OnCancel(v.Context(), func() {
 		run(down)
 	})
 	return run(up)

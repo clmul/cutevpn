@@ -13,14 +13,14 @@ import (
 	"github.com/clmul/cutevpn"
 )
 
-func newTLS(vpn cutevpn.VPN, linkURL *url.URL, cert tls.Certificate, ca *x509.CertPool) (cutevpn.Link, error) {
-	if linkURL.Query().Get("listen") == "1" {
+func newTLS(vpn cutevpn.VPN, linkURL *url.URL, cert tls.Certificate, ca *x509.CertPool) error {
+	if linkURL.Hostname() == "" {
 		return newTLSListener(vpn, linkURL, cert, ca)
 	}
 	return newTLSDialer(vpn, linkURL, cert, ca)
 }
 
-func newTLSListener(vpn cutevpn.VPN, linkURL *url.URL, cert tls.Certificate, ca *x509.CertPool) (cutevpn.Link, error) {
+func newTLSListener(vpn cutevpn.VPN, linkURL *url.URL, cert tls.Certificate, ca *x509.CertPool) error {
 	listener, err := tls.Listen("tcp", linkURL.Host, &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		ClientAuth:   tls.VerifyClientCertIfGiven,
@@ -29,9 +29,9 @@ func newTLSListener(vpn cutevpn.VPN, linkURL *url.URL, cert tls.Certificate, ca 
 		NextProtos:   []string{"http/1.1"},
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	vpn.Defer(func() {
+	vpn.OnCancel(vpn.Context(), func() {
 		listener.Close()
 	})
 	fake := newFakeListener()
@@ -54,14 +54,14 @@ func newTLSListener(vpn cutevpn.VPN, linkURL *url.URL, cert tls.Certificate, ca 
 		vpn.AddLink(peer)
 		return nil
 	})
-	return nil, nil
+	return nil
 }
 
-func newTLSDialer(vpn cutevpn.VPN, linkURL *url.URL, cert tls.Certificate, ca *x509.CertPool) (cutevpn.Link, error) {
+func newTLSDialer(vpn cutevpn.VPN, linkURL *url.URL, cert tls.Certificate, ca *x509.CertPool) error {
 	vpn.Loop(func(ctx context.Context) error {
 		return connect(ctx, vpn, linkURL, cert, ca)
 	})
-	return nil, nil
+	return nil
 }
 
 func tlsDialContext(ctx context.Context, addr string, config *tls.Config) (*tls.Conn, error) {
@@ -85,7 +85,7 @@ func connect(ctx context.Context, vpn cutevpn.VPN, linkURL *url.URL, cert tls.Ce
 			log.Println(err)
 			select {
 			case <-time.After(time.Second * 5):
-			case <-vpn.Done():
+			case <-vpn.Context().Done():
 				return nil
 			}
 			continue

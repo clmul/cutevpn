@@ -100,7 +100,7 @@ func (d *stream) Peer() cutevpn.LinkAddr {
 }
 
 func (d *stream) Overhead() int {
-	return 0
+	return -1
 }
 
 func (d *stream) ToString(dst cutevpn.LinkAddr) string {
