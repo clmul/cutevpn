@@ -6,7 +6,7 @@ import (
 	"log"
 	"net"
 
-	"gvisor.dev/gvisor/pkg/buffer"
+	"gvisor.dev/gvisor/pkg/bufferv2"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/link/channel"
@@ -185,7 +185,7 @@ func (t *socks5proxy) Close() error {
 
 func (t *socks5proxy) Send(packet []byte) {
 	packetBuffer := stack.NewPacketBuffer(stack.PacketBufferOptions{
-		Payload: buffer.NewWithData(packet),
+		Payload: bufferv2.MakeWithData(packet),
 	})
 	t.s.ep.InjectInbound(ipv4.ProtocolNumber, packetBuffer)
 }
@@ -196,7 +196,7 @@ func (t *socks5proxy) Recv(packet []byte) int {
 		return 0
 	}
 	n := 0
-	for _, buf := range packetBuffer.Slices() {
+	for _, buf := range packetBuffer.AsSlices() {
 		n += copy(packet[n:], buf)
 	}
 	return n
