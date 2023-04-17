@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"flag"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -23,6 +26,17 @@ func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	flag.StringVar(&conf, "config", "config.toml", "config file path")
 	flag.Parse()
+	//disableDefaultDNS()
+}
+
+func disableDefaultDNS() {
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		return nil, errors.New("disable default DNS")
+	}
+	net.DefaultResolver = &net.Resolver{
+		PreferGo: true,
+		Dial:     dial,
+	}
 }
 
 type Config struct {
