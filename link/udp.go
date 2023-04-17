@@ -6,8 +6,10 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"strconv"
 
 	"github.com/clmul/cutevpn"
+	"github.com/clmul/cutevpn/dns"
 )
 
 type udp struct {
@@ -30,11 +32,15 @@ func newUDP(vpn cutevpn.VPN, linkURL *url.URL, cipher cutevpn.Cipher) error {
 	if linkURL.Hostname() == "" {
 		listen = linkURL.Host
 	} else {
-		addr, err := net.ResolveUDPAddr("udp", linkURL.Host)
+		addr, err := dns.ResolveIPv4(linkURL.Hostname())
 		if err != nil {
 			return err
 		}
-		t.peer = cutevpn.ConvertNetAddr(addr.IP, addr.Port)
+		port, err := strconv.Atoi(linkURL.Port())
+		if err != nil {
+			return fmt.Errorf("%v is not a valid port", linkURL.Port())
+		}
+		t.peer = cutevpn.ConvertNetAddr(addr, port)
 	}
 	c, err := net.ListenPacket("udp", listen)
 	if err != nil {

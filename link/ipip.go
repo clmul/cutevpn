@@ -3,10 +3,11 @@ package link
 import (
 	"context"
 	"fmt"
-	"github.com/clmul/cutevpn"
 	"log"
 	"net"
 	"net/url"
+
+	"github.com/clmul/cutevpn"
 )
 
 type ipip struct {
