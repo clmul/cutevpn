@@ -139,7 +139,6 @@ func (ospf *OSPF) Dump() []byte {
 			"neighbors":      ospf.neighbors,
 			"adjaRoutes":     ospf.routes.adja,
 			"shortestRoutes": ospf.routes.shortest,
-			"balanceRoutes":  ospf.routes.balance,
 		})
 		ospf.routes.Unlock()
 		if err != nil {
