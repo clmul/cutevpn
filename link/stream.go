@@ -4,18 +4,21 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/clmul/cutevpn"
 )
 
 type stream struct {
-	conn net.Conn
-	out  chan []byte
+	conn   net.Conn
+	out    chan []byte
+	isIPv6 bool
 
 	peer   cutevpn.LinkAddr
 	local  string
@@ -31,12 +34,22 @@ func newStream(ctx context.Context, vpn cutevpn.VPN, conn net.Conn, peer cutevpn
 	scanner := bufio.NewScanner(conn)
 	scanner.Split(split)
 	ctx, cancel := context.WithCancel(ctx)
+	localAddr, localPort, _ := net.SplitHostPort(conn.LocalAddr().String())
+	_, remotePort, _ := net.SplitHostPort(conn.RemoteAddr().String())
+	var remote string
+	if peer != nil {
+		remote = peer.(string)
+	} else {
+		tlsConn := conn.(*tls.Conn)
+		remote = tlsConn.ConnectionState().PeerCertificates[0].Subject.CommonName
+	}
 	d := &stream{
 		conn:    conn,
+		isIPv6:  strings.Contains(localAddr, ":"),
 		out:     make(chan []byte, 4),
 		peer:    peer,
-		local:   conn.LocalAddr().String(),
-		remote:  conn.RemoteAddr().String(),
+		local:   fmt.Sprintf("local:%v", localPort),
+		remote:  fmt.Sprintf("%v:%v", remote, remotePort),
 		ctx:     ctx,
 		cancel:  cancel,
 		scanner: scanner,
@@ -104,7 +117,11 @@ func (d *stream) Overhead() int {
 }
 
 func (d *stream) ToString(dst cutevpn.LinkAddr) string {
-	return fmt.Sprintf("tls %v->%v", d.local, d.remote)
+	ipVersion := "ipv4"
+	if d.isIPv6 {
+		ipVersion = "ipv6"
+	}
+	return fmt.Sprintf("tls %v %v->%v", ipVersion, d.local, d.remote)
 }
 
 func (d *stream) Cancel() {
