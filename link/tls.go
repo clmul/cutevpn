@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/clmul/cutevpn/dns"
 	"github.com/clmul/cutevpn"
 )
 
@@ -65,12 +64,8 @@ func newTLSDialer(vpn cutevpn.VPN, linkURL *url.URL, cert tls.Certificate, ca *x
 	return nil
 }
 
-func tlsDialContext(ctx context.Context, addr, port string, config *tls.Config) (*tls.Conn, error) {
-	ip, err := dns.ResolveIPv4(addr)
-	if err != nil {
-		return nil, err
-	}
-	rawConn, err := (&net.Dialer{}).DialContext(ctx, "tcp", ip.String()+":"+port)
+func tlsDialContext(ctx context.Context, host string, config *tls.Config) (*tls.Conn, error) {
+	rawConn, err := (&net.Dialer{}).DialContext(ctx, "tcp", host)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +75,7 @@ func tlsDialContext(ctx context.Context, addr, port string, config *tls.Config) 
 
 func connect(ctx context.Context, vpn cutevpn.VPN, linkURL *url.URL, cert tls.Certificate, ca *x509.CertPool) error {
 	for i := 1; ; i++ {
-		conn, err := tlsDialContext(ctx, linkURL.Hostname(), linkURL.Port(), &tls.Config{
+		conn, err := tlsDialContext(ctx, linkURL.Host, &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			RootCAs:      ca,
 			MinVersion:   tls.VersionTLS13,

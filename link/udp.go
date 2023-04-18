@@ -9,7 +9,6 @@ import (
 	"strconv"
 
 	"github.com/clmul/cutevpn"
-	"github.com/clmul/cutevpn/dns"
 )
 
 type udp struct {
@@ -32,15 +31,19 @@ func newUDP(vpn cutevpn.VPN, linkURL *url.URL, cipher cutevpn.Cipher) error {
 	if linkURL.Hostname() == "" {
 		listen = linkURL.Host
 	} else {
-		addr, err := dns.ResolveIPv4(linkURL.Hostname())
+		ips, err := net.LookupIP(linkURL.Hostname())
 		if err != nil {
 			return err
 		}
+		if len(ips) == 0 {
+			return fmt.Errorf("known host %v", linkURL.Hostname())
+		}
+		addr := ips[0]
 		port, err := strconv.Atoi(linkURL.Port())
 		if err != nil {
 			return fmt.Errorf("%v is not a valid port", linkURL.Port())
 		}
-		t.peer = cutevpn.ConvertNetAddr(addr, port)
+		t.peer = convertNetAddr(addr, port)
 	}
 	c, err := net.ListenPacket("udp", listen)
 	if err != nil {
@@ -70,7 +73,7 @@ func (t *udp) Peer() cutevpn.LinkAddr {
 }
 
 func (t *udp) Send(packet []byte, addr cutevpn.LinkAddr) error {
-	ip, port := cutevpn.ConvertToNetAddr(addr.(cutevpn.AddrPort))
+	ip, port := convertToNetAddr(addr.(AddrPort))
 	_, err := t.conn.WriteToUDP(t.cipher.Encrypt(packet), &net.UDPAddr{IP: ip, Port: port})
 	return err
 }
@@ -86,7 +89,7 @@ func (t *udp) Recv(packet []byte) (p []byte, addr cutevpn.LinkAddr, err error) {
 		log.Println(err)
 		return packet[:0], nil, nil
 	}
-	return packet, cutevpn.ConvertNetAddr(udpAddr.IP, udpAddr.Port), nil
+	return packet, convertNetAddr(udpAddr.IP, udpAddr.Port), nil
 }
 
 func (t *udp) Overhead() int {
@@ -99,4 +102,24 @@ func (t *udp) Cancel() {
 
 func (t *udp) Done() <-chan struct{} {
 	return t.ctx.Done()
+}
+
+type AddrPort struct {
+	IP   [16]byte
+	Port int
+}
+
+func (ap AddrPort) String() string {
+	return fmt.Sprintf("%v:%v", net.IP(ap.IP[:]), ap.Port)
+}
+
+func convertNetAddr(ip net.IP, port int) AddrPort {
+	r := AddrPort{}
+	copy(r.IP[:], ip.To16())
+	r.Port = port
+	return r
+}
+
+func convertToNetAddr(ap AddrPort) (ip net.IP, port int) {
+	return ap.IP[:], ap.Port
 }

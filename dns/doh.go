@@ -1,14 +1,14 @@
 package dns
 
 import (
+	"context"
 	"encoding/base64"
-	"errors"
-	"io"
+	"fmt"
 	"math/rand"
 	"net"
 	"net/http"
-
-	"github.com/miekg/dns"
+	"strings"
+	"time"
 )
 
 var servers = []string{
@@ -21,79 +21,86 @@ var servers = []string{
 	"101.101.101.101",
 }
 
-var ErrExpectIPv4 = errors.New("not ipv4 address")
-var ErrExpectIPv6 = errors.New("not ipv6 address")
-var ErrNoSuchHost = errors.New("no such host")
-
-func resolve(server, host string, dnsType uint16) (net.IP, error) {
-	host = dns.Fqdn(host)
-	m := new(dns.Msg)
-	m.SetQuestion(host, dnsType)
-	buf, err := m.Pack()
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.Get("https://" + server + "/dns-query?dns=" + base64.URLEncoding.EncodeToString(buf))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	n := new(dns.Msg)
-	err = n.Unpack(body)
-	if err != nil {
-		return nil, err
-	}
-	for _, rr := range n.Answer {
-		switch a := rr.(type) {
-		case *dns.A:
-			return a.A, nil
-		case *dns.AAAA:
-			return a.AAAA, nil
-		}
-	}
-	return nil, ErrNoSuchHost
-}
-
-func resolve1(host string, dnsType uint16) (ip net.IP, err error) {
-	if len(host) >= 2 && host[0] == '[' && host[len(host)-1] == ']' {
-		ip = net.ParseIP(host[1 : len(host)-1])
-	} else {
-		ip = net.ParseIP(host)
-	}
-	if ip != nil {
-		ipv4 := ip.To4()
-		if dnsType == dns.TypeA && ipv4 != nil {
-			return ipv4, nil
-		}
-		if dnsType == dns.TypeA && ipv4 == nil {
-			return nil, ErrExpectIPv4
-		}
-		if dnsType == dns.TypeAAAA && ipv4 == nil {
-			return ip, nil
-		}
-		if dnsType == dns.TypeAAAA && ipv4 != nil {
-			return nil, ErrExpectIPv6
-		}
-	}
-	for i := 0; i < 3; i++ {
+func init() {
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		fmt.Println("dial", network, address)
 		n := rand.Intn(len(servers))
 		server := servers[n]
-		ip, err = resolve(server, host, dnsType)
-		if err == nil {
-			return ip, nil
-		}
+		return &dohConn{server: server}, nil
 	}
-	return ip, err
+	net.DefaultResolver = &net.Resolver{
+		PreferGo: true,
+		Dial:     dial,
+	}
 }
 
-func ResolveIPv4(host string) (net.IP, error) {
-	return resolve1(host, dns.TypeA)
+var _ net.PacketConn = &dohConn{}
+
+type dohConn struct {
+	server string
+	resp   *http.Response
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
-func ResolveIPv6(host string) (net.IP, error) {
-	return resolve1(host, dns.TypeAAAA)
+func (c *dohConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+	n, err = c.Read(p)
+	return n, nil, err
+}
+
+func (c *dohConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+	return c.Write(p)
+}
+
+func (c *dohConn) Close() error {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	return c.resp.Body.Close()
+}
+
+func (c *dohConn) LocalAddr() net.Addr {
+	return nil
+}
+
+func (c *dohConn) SetDeadline(t time.Time) error {
+	c.ctx, c.cancel = context.WithDeadline(context.Background(), t)
+	return nil
+}
+
+func (c *dohConn) SetReadDeadline(t time.Time) error {
+	return c.SetDeadline(t)
+}
+
+func (c *dohConn) SetWriteDeadline(t time.Time) error {
+	return c.SetDeadline(t)
+}
+
+func (c *dohConn) Read(b []byte) (n int, err error) {
+	return c.resp.Body.Read(b)
+}
+
+func (c *dohConn) Write(b []byte) (n int, err error) {
+	server := servers[rand.Intn(len(servers))]
+	msg := base64.URLEncoding.EncodeToString(b)
+	msg = strings.TrimRight(msg, "=")
+
+	if c.ctx == nil {
+		c.ctx = context.Background()
+	}
+	url := "https://" + server + "/dns-query?dns=" + msg
+	req, err := http.NewRequestWithContext(c.ctx, "GET", url, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	c.resp = resp
+	return len(b), nil
+}
+
+func (c *dohConn) RemoteAddr() net.Addr {
+	return nil
 }
