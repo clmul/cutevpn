@@ -42,6 +42,7 @@ func newStream(ctx context.Context, vpn cutevpn.VPN, conn net.Conn, peer cutevpn
 	} else {
 		tlsConn := conn.(*tls.Conn)
 		remote = tlsConn.ConnectionState().PeerCertificates[0].Subject.CommonName
+		remote = fmt.Sprintf("%v:%v", remote, remotePort)
 	}
 	d := &stream{
 		conn:    conn,
@@ -49,7 +50,7 @@ func newStream(ctx context.Context, vpn cutevpn.VPN, conn net.Conn, peer cutevpn
 		out:     make(chan []byte, 4),
 		peer:    peer,
 		local:   fmt.Sprintf("local:%v", localPort),
-		remote:  fmt.Sprintf("%v:%v", remote, remotePort),
+		remote:  remote,
 		ctx:     ctx,
 		cancel:  cancel,
 		scanner: scanner,

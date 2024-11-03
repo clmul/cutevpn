@@ -4,7 +4,8 @@ After=network-online.target network.target
 
 [Service]
 Type=exec
-ExecStart=/usr/local/bin/cutevpn -config /etc/cutevpn.toml
+ExecStart=/usr/local/bin/cutevpn
+WorkingDirectory=/etc/cutevpn
 Restart=on-failure
 RestartSec=10s
 KillSignal=SIGINT
